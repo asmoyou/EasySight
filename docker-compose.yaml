@@ -1,0 +1,123 @@
+services:
+  mysql:
+    image: mysql:5.7
+    container_name: mysql
+    restart: always
+    environment:
+      TZ: "Asia/Shanghai"
+      MYSQL_ROOT_PASSWORD: RotaNova@2023
+      MYSQL_DATABASE: aicenter
+      MYSQL_USER: rotanova
+      MYSQL_PASSWORD: RotaNova@2025
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./data/mysql_data:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: always
+    environment:
+      TZ: "Asia/Shanghai"
+      POSTGRES_DB: aicenter
+      POSTGRES_USER: rotanova
+      POSTGRES_PASSWORD: RotaNova@2025
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres_data:/var/lib/postgresql/data
+      - ./data/postgres_init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rotanova -d aicenter"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: always
+    volumes:
+      - ./data/minio_data:/mnt/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      TZ: "Asia/Shanghai"
+      MINIO_ROOT_USER: rotanova
+      MINIO_ROOT_PASSWORD: RotaNova@2025
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+    command: server /mnt/data --console-address ":9001"
+    healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+        interval: 30s
+        timeout: 10s
+        retries: 3
+
+  redis:
+    image: redis:7.2.5
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    environment:
+      TZ: "Asia/Shanghai"
+#    volumes:
+#      - ./data/redis:/data
+    logging:
+      driver: "json-file"
+      options:
+          max-size: "10m"
+          max-file: "2"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+
+  rabbitmq:
+    image: rabbitmq:3
+    container_name: rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"  # RabbitMQ 客户端连接端口
+#      - "15672:15672" # RabbitMQ 管理界面端口
+    volumes:
+      - './data/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf'
+#      - ./data/rabbitmq:/var/lib/rabbitmq
+    environment:
+      TZ: "Asia/Shanghai"
+      RABBITMQ_DEFAULT_USER: rotanova
+      RABBITMQ_DEFAULT_PASS: RotaNova@2025
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
