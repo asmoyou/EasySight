@@ -1,0 +1,6 @@
+backend/.venv/
+backend/__pycache__/
+data/
+web/node_modules/
+backend/alembic/__pycache__/
+web/yarn.lock

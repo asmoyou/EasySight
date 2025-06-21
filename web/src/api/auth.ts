@@ -1,0 +1,35 @@
+import request from '@/utils/request'
+import type { LoginForm, LoginResponse, User, ChangePasswordForm } from '@/types/user'
+import type { ApiResponse } from '@/types/api'
+
+export const authApi = {
+  // 用户登录
+  login(data: LoginForm) {
+    return request.post<ApiResponse<LoginResponse>>('/api/v1/auth/login', data)
+  },
+
+  // 用户登出
+  logout() {
+    return request.post<ApiResponse<null>>('/api/v1/auth/logout')
+  },
+
+  // 刷新token
+  refreshToken() {
+    return request.post<ApiResponse<{ access_token: string }>>('/api/v1/auth/refresh')
+  },
+
+  // 获取当前用户信息
+  getCurrentUser() {
+    return request.get<ApiResponse<User>>('/api/v1/auth/me')
+  },
+
+  // 修改密码
+  changePassword(data: ChangePasswordForm) {
+    return request.post<ApiResponse<null>>('/api/v1/auth/change-password', data)
+  },
+
+  // 验证token
+  verifyToken() {
+    return request.get<ApiResponse<{ valid: boolean }>>('/api/v1/auth/verify')
+  }
+}

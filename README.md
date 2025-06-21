@@ -135,6 +135,12 @@ yarn preview
 # 进入 backend 目录
 cd backend
 
+# 使用虚拟化环境
+## 创建
+python -m venv .venv
+## 激活
+.venv/Scripts\activate
+
 # 安装后端依赖（如 requirements.txt 存在）
 pip install -r requirements.txt
 ```
