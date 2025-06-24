@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr
@@ -9,6 +9,7 @@ from typing import Optional
 
 from database import get_db
 from models.user import User, UserSession, UserLoginLog
+from models.role import Role, UserRole
 from config import settings
 
 router = APIRouter()
@@ -48,12 +49,49 @@ class UserInfo(BaseModel):
     full_name: Optional[str]
     phone: Optional[str]
     avatar: Optional[str]
+    role: str
     roles: list
     permissions: list
+    page_permissions: dict
     language: str
     is_active: bool
     last_login: Optional[datetime]
     created_at: datetime
+
+# Helper function to get user roles and permissions
+async def get_user_roles_and_permissions(user: User, db: AsyncSession):
+    """获取用户的角色和页面权限"""
+    # 查询用户的角色
+    query = select(Role).join(UserRole).where(
+        and_(
+            UserRole.user_id == user.id,
+            UserRole.is_active == True,
+            Role.is_active == True
+        )
+    )
+    result = await db.execute(query)
+    roles = result.scalars().all()
+    
+    # 合并所有角色的权限
+    all_permissions = set()
+    all_page_permissions = {}
+    
+    for role in roles:
+        # 添加角色权限
+        if role.permissions:
+            all_permissions.update(role.permissions)
+        
+        # 合并页面权限（允许访问的页面）
+        if role.page_permissions:
+            for page_path, allowed in role.page_permissions.items():
+                if allowed:
+                    all_page_permissions[page_path] = True
+    
+    return {
+        "roles": [role.name for role in roles],
+        "permissions": list(all_permissions),
+        "page_permissions": all_page_permissions
+    }
 
 # JWT token functions
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -104,13 +142,29 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.username == request.username))
     user = result.scalar_one_or_none()
     
-    if not user or not user.verify_password(request.password):
-        # 记录登录失败日志
+    if not user:
+        # 用户不存在，记录登录失败日志
         login_log = UserLoginLog(
-            user_id=user.id if user else None,
+            user_id=None,
             username=request.username,
             login_result="failed",
-            failure_reason="Invalid credentials"
+            failure_reason="User not found"
+        )
+        db.add(login_log)
+        await db.commit()
+        
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名或密码错误"
+        )
+    
+    if not user.verify_password(request.password):
+        # 密码错误，记录登录失败日志
+        login_log = UserLoginLog(
+            user_id=user.id,
+            username=request.username,
+            login_result="failed",
+            failure_reason="Invalid password"
         )
         db.add(login_log)
         await db.commit()
@@ -136,6 +190,9 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     )
     refresh_token = create_refresh_token(data={"sub": user.username})
     
+    # 获取用户的角色和权限信息
+    user_roles_permissions = await get_user_roles_and_permissions(user, db)
+    
     # 更新用户登录信息
     user.last_login = datetime.utcnow()
     user.login_count += 1
@@ -160,8 +217,10 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
             "email": user.email,
             "full_name": user.full_name,
             "avatar": user.avatar,
-            "roles": user.roles,
-            "permissions": user.permissions,
+            "role": user_roles_permissions["roles"][0] if user_roles_permissions["roles"] else "viewer",
+            "roles": user_roles_permissions["roles"],
+            "permissions": user_roles_permissions["permissions"],
+            "page_permissions": user_roles_permissions["page_permissions"],
             "language": user.language
         }
     )
@@ -194,6 +253,9 @@ async def refresh_token(request: RefreshTokenRequest, db: AsyncSession = Depends
         data={"sub": user.username}, expires_delta=access_token_expires
     )
     
+    # 获取用户的角色和权限信息
+    user_roles_permissions = await get_user_roles_and_permissions(user, db)
+    
     return LoginResponse(
         access_token=access_token,
         refresh_token=request.refresh_token,  # 刷新令牌保持不变
@@ -204,21 +266,27 @@ async def refresh_token(request: RefreshTokenRequest, db: AsyncSession = Depends
             "email": user.email,
             "full_name": user.full_name,
             "avatar": user.avatar,
-            "roles": user.roles,
-            "permissions": user.permissions,
+            "role": user_roles_permissions["roles"][0] if user_roles_permissions["roles"] else "viewer",
+            "roles": user_roles_permissions["roles"],
+            "permissions": user_roles_permissions["permissions"],
+            "page_permissions": user_roles_permissions["page_permissions"],
             "language": user.language
         }
     )
 
 @router.post("/logout")
-async def logout(current_user: User = Depends(get_current_user)):
+async def logout():
     """用户登出"""
     # 这里可以实现令牌黑名单机制
+    # 注意：logout接口不需要权限验证，因为在token失效时也需要能够调用
     return {"message": "登出成功"}
 
 @router.get("/me", response_model=UserInfo)
-async def get_current_user_info(current_user: User = Depends(get_current_user)):
+async def get_current_user_info(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """获取当前用户信息"""
+    # 获取用户的角色和权限信息
+    user_roles_permissions = await get_user_roles_and_permissions(current_user, db)
+    
     return UserInfo(
         id=current_user.id,
         username=current_user.username,
@@ -226,8 +294,10 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         full_name=current_user.full_name,
         phone=current_user.phone,
         avatar=current_user.avatar,
-        roles=current_user.roles,
-        permissions=current_user.permissions,
+        role=user_roles_permissions["roles"][0] if user_roles_permissions["roles"] else "viewer",
+        roles=user_roles_permissions["roles"],
+        permissions=user_roles_permissions["permissions"],
+        page_permissions=user_roles_permissions["page_permissions"],
         language=current_user.language,
         is_active=current_user.is_active,
         last_login=current_user.last_login,
@@ -276,15 +346,16 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         username=request.username,
         email=request.email,
         full_name=request.full_name,
-        phone=request.phone,
-        roles=["user"],  # 默认角色
-        permissions=[]
+        phone=request.phone
     )
     user.set_password(request.password)
     
     db.add(user)
     await db.commit()
     await db.refresh(user)
+    
+    # 获取用户角色和权限信息
+    user_roles_permissions = await get_user_roles_and_permissions(user, db)
     
     return UserInfo(
         id=user.id,
@@ -293,8 +364,10 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         full_name=user.full_name,
         phone=user.phone,
         avatar=user.avatar,
-        roles=user.roles,
-        permissions=user.permissions,
+        role=user_roles_permissions["roles"][0] if user_roles_permissions["roles"] else "viewer",
+        roles=user_roles_permissions["roles"],
+        permissions=user_roles_permissions["permissions"],
+        page_permissions=user_roles_permissions["page_permissions"],
         language=user.language,
         is_active=user.is_active,
         last_login=user.last_login,

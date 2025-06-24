@@ -4,3 +4,9 @@ data/
 web/node_modules/
 backend/alembic/__pycache__/
 web/yarn.lock
+zlmediakitServer/mediaworker/www/
+web/npm-debug.log.2956259326
+zlmediakitServer/utils/__pycache__/
+zlmediakitServer/logs/
+zlmediakitServer/__pycache__/
+web/npm-debug.log

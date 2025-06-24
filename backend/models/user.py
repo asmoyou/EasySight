@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, ForeignKey
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from database import Base
 from passlib.context import CryptContext
 
@@ -21,9 +22,11 @@ class User(Base):
     is_superuser = Column(Boolean, default=False, comment="是否超级管理员")
     is_verified = Column(Boolean, default=False, comment="是否已验证")
     
-    # 权限相关
-    roles = Column(JSON, default=list, comment="用户角色列表")
+    # 权限相关 - 通过UserRole关联表管理角色
     permissions = Column(JSON, default=list, comment="用户权限列表")
+    
+    # 关联关系
+    user_roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan", foreign_keys="UserRole.user_id")
     
     # 多语言设置
     language = Column(String(10), default="zh-CN", comment="用户语言偏好")
@@ -60,7 +63,7 @@ class UserSession(Base):
     __tablename__ = "user_sessions"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, comment="用户ID")
+    user_id = Column(Integer, nullable=True, comment="用户ID")
     session_token = Column(String(255), unique=True, index=True, nullable=False, comment="会话令牌")
     refresh_token = Column(String(255), unique=True, index=True, comment="刷新令牌")
     ip_address = Column(String(45), comment="IP地址")

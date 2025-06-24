@@ -1,28 +1,28 @@
 services:
-  mysql:
-    image: mysql:5.7
-    container_name: mysql
-    restart: always
-    environment:
-      TZ: "Asia/Shanghai"
-      MYSQL_ROOT_PASSWORD: RotaNova@2023
-      MYSQL_DATABASE: easysight
-      MYSQL_USER: rotanova
-      MYSQL_PASSWORD: RotaNova@2025
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "2"
-    ports:
-      - "3306:3306"
-    volumes:
-      - ./data/mysql_data:/var/lib/mysql
-    healthcheck:
-      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
-      interval: 10s
-      timeout: 10s
-      retries: 3
+  # mysql:
+  #   image: mysql:5.7
+  #   container_name: mysql
+  #   restart: always
+  #   environment:
+  #     TZ: "Asia/Shanghai"
+  #     MYSQL_ROOT_PASSWORD: RotaNova@2023
+  #     MYSQL_DATABASE: easysight
+  #     MYSQL_USER: rotanova
+  #     MYSQL_PASSWORD: RotaNova@2025
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "2"
+  #   ports:
+  #     - "3306:3306"
+  #   volumes:
+  #     - ./data/mysql_data:/var/lib/mysql
+  #   healthcheck:
+  #     test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+  #     interval: 10s
+  #     timeout: 10s
+  #     retries: 3
 
   postgres:
     image: postgres:15
@@ -121,3 +121,27 @@ services:
       interval: 10s
       timeout: 10s
       retries: 3
+
+  media-worker:
+    restart: always
+    container_name: media-worker
+    image: registry.cn-hangzhou.aliyuncs.com/rotanova/media-worker:v1.1
+    ports:
+      - 1935:1935
+      - 8060:8060
+      - 554:554
+      - 8000:8000/udp
+    volumes:
+      - ./zlmediakitServer/mediaworker/config.ini:/opt/media/conf/config.ini
+      - ./zlmediakitServer/mediaworker/www:/opt/media/bin/www
+    environment:
+      TZ: "Asia/Shanghai"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "2"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8060" ]
+      interval: 30s
+      timeout: 10s

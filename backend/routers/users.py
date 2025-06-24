@@ -7,7 +7,8 @@ from datetime import datetime
 
 from database import get_db
 from models.user import User, UserLoginLog
-from routers.auth import get_current_user
+from models.role import Role, UserRole
+from routers.auth import get_current_user, get_user_roles_and_permissions
 from config import settings
 
 router = APIRouter()
@@ -75,12 +76,14 @@ class UserStats(BaseModel):
     recent_logins: int
 
 # 权限检查装饰器
-def require_admin(current_user: User = Depends(get_current_user)):
-    if not current_user.is_superuser and "admin" not in current_user.roles:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="需要管理员权限"
-        )
+async def require_admin(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    if not current_user.is_superuser:
+        user_roles_permissions = await get_user_roles_and_permissions(current_user, db)
+        if "admin" not in user_roles_permissions["roles"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="需要管理员权限"
+            )
     return current_user
 
 @router.get("/", response_model=UserListResponse)
@@ -108,7 +111,15 @@ async def get_users(
         )
     
     if role:
-        conditions.append(User.roles.contains([role]))
+        # 通过UserRole关联表搜索角色
+        role_subquery = select(UserRole.user_id).join(Role).where(
+            and_(
+                Role.name == role,
+                UserRole.is_active == True,
+                Role.is_active == True
+            )
+        )
+        conditions.append(User.id.in_(role_subquery))
     
     if is_active is not None:
         conditions.append(User.is_active == is_active)
@@ -134,16 +145,19 @@ async def get_users(
     
     total_pages = (total + page_size - 1) // page_size
     
-    return UserListResponse(
-        users=[UserResponse(
+    # 为每个用户获取角色和权限信息
+    user_responses = []
+    for user in users:
+        user_roles_permissions = await get_user_roles_and_permissions(user, db)
+        user_responses.append(UserResponse(
             id=user.id,
             username=user.username,
             email=user.email,
             full_name=user.full_name,
             phone=user.phone,
             avatar=user.avatar,
-            roles=user.roles,
-            permissions=user.permissions,
+            roles=user_roles_permissions["roles"],
+            permissions=user_roles_permissions["permissions"],
             language=user.language,
             timezone=user.timezone,
             is_active=user.is_active,
@@ -154,7 +168,10 @@ async def get_users(
             created_at=user.created_at,
             updated_at=user.updated_at,
             description=user.description
-        ) for user in users],
+        ))
+    
+    return UserListResponse(
+        users=user_responses,
         total=total,
         page=page,
         page_size=page_size,
@@ -201,6 +218,9 @@ async def create_user(
     await db.commit()
     await db.refresh(user)
     
+    # 获取用户角色和权限信息
+    user_roles_permissions = await get_user_roles_and_permissions(user, db)
+    
     return UserResponse(
         id=user.id,
         username=user.username,
@@ -208,8 +228,8 @@ async def create_user(
         full_name=user.full_name,
         phone=user.phone,
         avatar=user.avatar,
-        roles=user.roles,
-        permissions=user.permissions,
+        roles=user_roles_permissions["roles"],
+        permissions=user_roles_permissions["permissions"],
         language=user.language,
         timezone=user.timezone,
         is_active=user.is_active,
@@ -230,11 +250,13 @@ async def get_user(
 ):
     """获取用户详情"""
     # 检查权限：管理员可以查看所有用户，普通用户只能查看自己
-    if not current_user.is_superuser and "admin" not in current_user.roles and current_user.id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="权限不足"
-        )
+    if not current_user.is_superuser and current_user.id != user_id:
+        current_user_roles_permissions = await get_user_roles_and_permissions(current_user, db)
+        if "admin" not in current_user_roles_permissions["roles"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="权限不足"
+            )
     
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -245,6 +267,9 @@ async def get_user(
             detail="用户不存在"
         )
     
+    # 获取用户角色和权限信息
+    user_roles_permissions = await get_user_roles_and_permissions(user, db)
+    
     return UserResponse(
         id=user.id,
         username=user.username,
@@ -252,8 +277,8 @@ async def get_user(
         full_name=user.full_name,
         phone=user.phone,
         avatar=user.avatar,
-        roles=user.roles,
-        permissions=user.permissions,
+        roles=user_roles_permissions["roles"],
+        permissions=user_roles_permissions["permissions"],
         language=user.language,
         timezone=user.timezone,
         is_active=user.is_active,
@@ -275,11 +300,13 @@ async def update_user(
 ):
     """更新用户信息"""
     # 检查权限
-    if not current_user.is_superuser and "admin" not in current_user.roles and current_user.id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="权限不足"
-        )
+    if not current_user.is_superuser and current_user.id != user_id:
+        current_user_roles_permissions = await get_user_roles_and_permissions(current_user, db)
+        if "admin" not in current_user_roles_permissions["roles"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="权限不足"
+            )
     
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -301,11 +328,42 @@ async def update_user(
     
     # 更新用户信息
     update_data = user_data.dict(exclude_unset=True)
+    
+    # 处理角色分配
+    roles_to_assign = update_data.pop('roles', None)
+    permissions_to_assign = update_data.pop('permissions', None)
+    
+    # 更新用户基本信息
     for field, value in update_data.items():
         setattr(user, field, value)
     
+    # 如果有角色更新，处理角色分配
+    if roles_to_assign is not None:
+        # 删除用户现有的角色分配
+        existing_roles = await db.execute(
+            select(UserRole).where(UserRole.user_id == user_id)
+        )
+        for existing_role in existing_roles.scalars().all():
+            await db.delete(existing_role)
+        
+        # 分配新角色
+        for role_name in roles_to_assign:
+            # 根据角色名查找角色ID
+            role_result = await db.execute(select(Role).where(Role.name == role_name))
+            role = role_result.scalar_one_or_none()
+            if role:
+                user_role = UserRole(
+                    user_id=user_id,
+                    role_id=role.id,
+                    assigned_by=current_user.id
+                )
+                db.add(user_role)
+    
     await db.commit()
     await db.refresh(user)
+    
+    # 获取用户的角色和权限信息
+    user_roles_permissions = await get_user_roles_and_permissions(user, db)
     
     return UserResponse(
         id=user.id,
@@ -314,8 +372,8 @@ async def update_user(
         full_name=user.full_name,
         phone=user.phone,
         avatar=user.avatar,
-        roles=user.roles,
-        permissions=user.permissions,
+        roles=user_roles_permissions["roles"],
+        permissions=user_roles_permissions["permissions"],
         language=user.language,
         timezone=user.timezone,
         is_active=user.is_active,

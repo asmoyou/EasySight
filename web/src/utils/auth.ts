@@ -89,7 +89,7 @@ export const getUserFromToken = (token: string): any => {
 
 // 权限检查
 export const hasPermission = (permission: string, userPermissions: string[]): boolean => {
-  return userPermissions.includes(permission) || userPermissions.includes('*')
+  return userPermissions.indexOf(permission) !== -1 || userPermissions.indexOf('*') !== -1
 }
 
 export const hasRole = (role: string, userRole: string): boolean => {

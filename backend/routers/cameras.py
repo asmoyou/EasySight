@@ -133,7 +133,7 @@ class MediaProxyResponse(BaseModel):
     memory_usage: Optional[float]
     bandwidth_usage: Optional[float]
     max_connections: int
-    current_connections: int
+    current_connections: Optional[int]
     last_heartbeat: Optional[datetime]
     created_at: datetime
     updated_at: datetime
@@ -671,4 +671,168 @@ async def create_camera_group(
         camera_count=len(group.camera_ids),
         created_at=group.created_at,
         updated_at=group.updated_at
+    )
+
+@router.put("/groups/{group_id}", response_model=CameraGroupResponse)
+async def update_camera_group(
+    group_id: int,
+    group_data: CameraGroupUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """更新摄像头分组"""
+    # 查找分组
+    result = await db.execute(select(CameraGroup).where(CameraGroup.id == group_id))
+    group = result.scalar_one_or_none()
+    
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="分组不存在"
+        )
+    
+    # 验证摄像头ID是否存在
+    if group_data.camera_ids is not None:
+        camera_result = await db.execute(select(Camera.id).where(Camera.id.in_(group_data.camera_ids)))
+        existing_ids = [row[0] for row in camera_result.all()]
+        invalid_ids = set(group_data.camera_ids) - set(existing_ids)
+        if invalid_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"以下摄像头ID不存在: {list(invalid_ids)}"
+            )
+    
+    # 更新分组信息
+    update_data = group_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(group, field, value)
+    
+    await db.commit()
+    await db.refresh(group)
+    
+    return CameraGroupResponse(
+        id=group.id,
+        name=group.name,
+        description=group.description,
+        camera_ids=group.camera_ids,
+        camera_count=len(group.camera_ids),
+        created_at=group.created_at,
+        updated_at=group.updated_at
+    )
+
+@router.delete("/groups/{group_id}")
+async def delete_camera_group(
+    group_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """删除摄像头分组"""
+    # 查找分组
+    result = await db.execute(select(CameraGroup).where(CameraGroup.id == group_id))
+    group = result.scalar_one_or_none()
+    
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="分组不存在"
+        )
+    
+    await db.delete(group)
+    await db.commit()
+    
+    return {"message": "分组删除成功"}
+
+@router.get("/groups/{group_id}/cameras", response_model=CameraListResponse)
+async def get_group_cameras(
+    group_id: int,
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取分组下的摄像头列表"""
+    # 查找分组
+    result = await db.execute(select(CameraGroup).where(CameraGroup.id == group_id))
+    group = result.scalar_one_or_none()
+    
+    if not group:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="分组不存在"
+        )
+    
+    if not group.camera_ids:
+        return CameraListResponse(
+            cameras=[],
+            total=0,
+            page=page,
+            page_size=page_size,
+            total_pages=0
+        )
+    
+    # 计算分页
+    offset = (page - 1) * page_size
+    
+    # 查询分组下的摄像头
+    query = select(Camera).where(Camera.id.in_(group.camera_ids))
+    
+    # 获取总数
+    count_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = count_result.scalar()
+    
+    # 获取分页数据
+    result = await db.execute(query.offset(offset).limit(page_size))
+    cameras = result.scalars().all()
+    
+    # 获取媒体代理信息
+    media_proxy_ids = [camera.media_proxy_id for camera in cameras if camera.media_proxy_id]
+    media_proxies = {}
+    if media_proxy_ids:
+        proxy_result = await db.execute(select(MediaProxy).where(MediaProxy.id.in_(media_proxy_ids)))
+        for proxy in proxy_result.scalars().all():
+            media_proxies[proxy.id] = proxy.name
+    
+    camera_responses = []
+    for camera in cameras:
+        camera_responses.append(CameraResponse(
+            id=camera.id,
+            code=camera.code,
+            name=camera.name,
+            stream_url=camera.stream_url,
+            backup_stream_url=camera.backup_stream_url,
+            camera_type=camera.camera_type,
+            media_proxy_id=camera.media_proxy_id,
+            media_proxy_name=media_proxies.get(camera.media_proxy_id),
+            location=camera.location,
+            longitude=camera.longitude,
+            latitude=camera.latitude,
+            altitude=camera.altitude,
+            manufacturer=camera.manufacturer,
+            model=camera.model,
+            firmware_version=camera.firmware_version,
+            ip_address=camera.ip_address,
+            port=camera.port,
+            resolution=camera.resolution,
+            frame_rate=camera.frame_rate,
+            bitrate=camera.bitrate,
+            status=camera.status,
+            is_active=camera.is_active,
+            is_recording=camera.is_recording,
+            custom_attributes=camera.custom_attributes,
+            alarm_enabled=camera.alarm_enabled,
+            alarm_config=camera.alarm_config,
+            last_heartbeat=camera.last_heartbeat,
+            created_at=camera.created_at,
+            updated_at=camera.updated_at,
+            description=camera.description
+        ))
+    
+    total_pages = (total + page_size - 1) // page_size
+    
+    return CameraListResponse(
+        cameras=camera_responses,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages
     )

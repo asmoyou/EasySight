@@ -17,9 +17,9 @@ const service: AxiosInstance = axios.create({
 // 请求拦截器
 service.interceptors.request.use(
   (config: AxiosRequestConfig) => {
-    // 添加认证token
+    // 添加认证token（logout接口不需要token）
     const token = getToken()
-    if (token && config.headers) {
+    if (token && config.headers && !config.url?.includes('/api/v1/auth/logout')) {
       config.headers.Authorization = `Bearer ${token}`
     }
     
@@ -62,8 +62,19 @@ service.interceptors.response.use(
     
     switch (status) {
       case 401:
-        // 未授权，可能token过期
-        await handleUnauthorized()
+        // 如果是登录请求失败，显示错误消息
+        if (error.config?.url?.includes('/api/v1/auth/login')) {
+          ElMessage.error(data?.detail || '用户名或密码错误')
+        } else if (error.config?.url?.includes('/api/v1/auth/logout')) {
+          // logout接口401错误，直接清除本地数据并跳转
+          const userStore = useUserStore()
+          userStore.logout(false).then(() => {
+            router.push('/login')
+          })
+        } else {
+          // 其他401错误，可能token过期
+          await handleUnauthorized(error.config)
+        }
         break
       case 403:
         ElMessage.error('权限不足，无法访问该资源')
@@ -118,8 +129,13 @@ const processQueue = (error: any, token: string | null = null) => {
   failedQueue = []
 }
 
-const handleUnauthorized = async () => {
+const handleUnauthorized = async (config?: any) => {
   const userStore = useUserStore()
+  
+  // 如果是登录请求失败，不进行token刷新和弹窗处理
+  if (config?.url?.includes('/api/v1/auth/login')) {
+    return Promise.reject(new Error('登录失败'))
+  }
   
   if (isRefreshing) {
     // 如果正在刷新token，将请求加入队列
@@ -152,13 +168,18 @@ const handleUnauthorized = async () => {
         type: 'warning'
       }
     ).then(() => {
-      userStore.logout().then(() => {
-        router.push('/login')
+      userStore.logout(false).then(() => {
+        // 确保在下一个事件循环中执行路由跳转
+        setTimeout(() => {
+          router.push('/login')
+        }, 0)
       })
     }).catch(() => {
       // 用户取消，也执行登出
-      userStore.logout().then(() => {
-        router.push('/login')
+      userStore.logout(false).then(() => {
+        setTimeout(() => {
+          router.push('/login')
+        }, 0)
       })
     })
     

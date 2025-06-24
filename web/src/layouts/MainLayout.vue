@@ -20,13 +20,13 @@
           class="sidebar-menu"
         >
           <!-- 仪表盘 -->
-          <el-menu-item index="/dashboard">
+          <el-menu-item v-if="userStore.hasPagePermission('/dashboard')" index="/dashboard">
             <el-icon><DataBoard /></el-icon>
             <template #title>仪表盘</template>
           </el-menu-item>
           
           <!-- 摄像头管理 -->
-          <el-sub-menu index="/cameras">
+          <el-sub-menu v-if="userStore.hasPagePermission('/cameras')" index="/cameras">
             <template #title>
               <el-icon><VideoCamera /></el-icon>
               <span>摄像头管理</span>
@@ -36,7 +36,7 @@
           </el-sub-menu>
           
           <!-- AI应用中心 -->
-          <el-sub-menu index="/ai">
+          <el-sub-menu v-if="userStore.hasPagePermission('/ai')" index="/ai">
             <template #title>
               <el-icon><Cpu /></el-icon>
               <span>AI应用中心</span>
@@ -47,7 +47,7 @@
           </el-sub-menu>
           
           <!-- 事件告警中心 -->
-          <el-sub-menu index="/events">
+          <el-sub-menu v-if="userStore.hasPagePermission('/events')" index="/events">
             <template #title>
               <el-icon><Warning /></el-icon>
               <span>事件告警中心</span>
@@ -58,7 +58,7 @@
           </el-sub-menu>
           
           <!-- 智能诊断 -->
-          <el-sub-menu index="/diagnosis">
+          <el-sub-menu v-if="userStore.hasPagePermission('/diagnosis')" index="/diagnosis">
             <template #title>
               <el-icon><Monitor /></el-icon>
               <span>智能诊断</span>
@@ -70,15 +70,16 @@
           </el-sub-menu>
           
           <!-- 系统配置 -->
-          <el-sub-menu index="/system">
+          <el-sub-menu v-if="userStore.hasPagePermission('/system')" index="/system">
             <template #title>
               <el-icon><Setting /></el-icon>
               <span>系统配置</span>
             </template>
-            <el-menu-item index="/system/settings">系统设置</el-menu-item>
+            <el-menu-item index="/system/config">系统设置</el-menu-item>
             <el-menu-item index="/system/users">用户管理</el-menu-item>
+            <el-menu-item index="/system/roles">角色管理</el-menu-item>
             <el-menu-item index="/system/logs">系统日志</el-menu-item>
-            <el-menu-item index="/system/metrics">性能监控</el-menu-item>
+            <el-menu-item index="/system/metrics">系统监控</el-menu-item>
           </el-sub-menu>
         </el-menu>
       </div>

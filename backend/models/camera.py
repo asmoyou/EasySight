@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, Float, Enum
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, Float, Enum, ForeignKey
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from database import Base
 import enum
 
@@ -85,6 +86,28 @@ class CameraGroup(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+
+class CameraGroupMember(Base):
+    """摄像头分组成员关联模型"""
+    __tablename__ = "camera_group_members"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    camera_id = Column(Integer, ForeignKey("cameras.id"), nullable=False, comment="摄像头ID")
+    group_id = Column(Integer, ForeignKey("camera_groups.id"), nullable=False, comment="分组ID")
+    
+    # 分配信息
+    assigned_by = Column(Integer, ForeignKey("users.id"), comment="分配者ID")
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now(), comment="分配时间")
+    
+    # 状态
+    is_active = Column(Boolean, default=True, comment="是否有效")
+    
+    # 时间戳
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    
+    def __repr__(self):
+        return f"<CameraGroupMember(id={self.id}, camera_id={self.camera_id}, group_id={self.group_id})>"
 
 class MediaProxy(Base):
     __tablename__ = "media_proxies"

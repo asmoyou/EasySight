@@ -1,0 +1,12 @@
+fastapi==0.104.1
+uvicorn==0.24.0
+requests==2.31.0
+minio==7.2.0
+aiohttp==3.9.1
+opencv-python==4.8.1.78
+# PostgreSQL dependencies
+sqlalchemy
+asyncpg
+psycopg2-binary
+# Additional dependencies
+python-multipart

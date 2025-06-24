@@ -45,6 +45,10 @@ app.include_router(events.router, prefix="/api/v1/events", tags=["事件告警�
 app.include_router(system.router, prefix="/api/v1/system", tags=["系统配置"])
 app.include_router(diagnosis.router, prefix="/api/v1/diagnosis", tags=["智能诊断"])
 
+# 导入角色管理路由
+from routers.roles import router as roles_router
+app.include_router(roles_router, prefix="/api/v1/roles", tags=["角色管理"])
+
 @app.get("/")
 async def root():
     return {"message": "EasySight 智能安防平台 API", "version": "1.0.0"}

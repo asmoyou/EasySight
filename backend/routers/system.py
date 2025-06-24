@@ -120,7 +120,7 @@ class SystemMetricsResponse(BaseModel):
     metric_name: str
     metric_value: float
     metric_unit: Optional[str]
-    tags: Dict[str, str]
+    dimensions: Dict[str, Any]
     timestamp: datetime
     created_at: datetime
 
@@ -144,7 +144,7 @@ class LicenseResponse(BaseModel):
 class SystemStatsResponse(BaseModel):
     total_configs: int
     active_policies: int
-    unread_messages: int
+    active_message_centers: int
     system_logs_today: int
     error_logs_today: int
     warning_logs_today: int
@@ -647,7 +647,7 @@ async def get_system_metrics(
         metric_name=metric.metric_name,
         metric_value=metric.metric_value,
         metric_unit=metric.metric_unit,
-        tags=metric.tags,
+        dimensions=metric.dimensions or {},
         timestamp=metric.timestamp,
         created_at=metric.created_at
     ) for metric in metrics]
@@ -704,17 +704,12 @@ async def get_system_stats(
     active_policies_result = await db.execute(select(func.count(DataRetentionPolicy.id)).where(DataRetentionPolicy.is_active == True))
     active_policies = active_policies_result.scalar()
     
-    # 未读消息统计
+    # 活跃消息中心统计
     unread_messages_result = await db.execute(
         select(func.count(MessageCenter.id))
-        .where(
-            and_(
-                MessageCenter.is_published == True,
-                MessageCenter.read_count < MessageCenter.total_recipients
-            )
-        )
+        .where(MessageCenter.is_active == True)
     )
-    unread_messages = unread_messages_result.scalar()
+    active_message_centers = unread_messages_result.scalar()
     
     # 今日日志统计
     today = date.today()
@@ -792,7 +787,7 @@ async def get_system_stats(
     return SystemStatsResponse(
         total_configs=total_configs,
         active_policies=active_policies,
-        unread_messages=unread_messages,
+        active_message_centers=active_message_centers,
         system_logs_today=system_logs_today,
         error_logs_today=error_logs_today,
         warning_logs_today=warning_logs_today,

@@ -38,20 +38,40 @@ const routes: Array<RouteRecordRaw> = [
       {
         path: '/cameras',
         name: 'Cameras',
-        component: () => import('@/views/cameras/index.vue'),
+        redirect: '/cameras/list',
         meta: {
           title: '摄像头管理',
           icon: 'VideoCamera'
-        }
-      },
-      {
-        path: '/cameras/groups',
-        name: 'CameraGroups',
-        component: () => import('@/views/cameras/groups.vue'),
-        meta: {
-          title: '摄像头分组',
-          icon: 'Collection'
-        }
+        },
+        children: [
+          {
+            path: '/cameras/list',
+            name: 'CameraList',
+            component: () => import('@/views/cameras/index.vue'),
+            meta: {
+              title: '摄像头列表',
+              icon: 'VideoCamera'
+            }
+          },
+          {
+            path: '/cameras/groups',
+            name: 'CameraGroups',
+            component: () => import('@/views/cameras/groups.vue'),
+            meta: {
+              title: '摄像头分组',
+              icon: 'Collection'
+            }
+          },
+          {
+            path: '/cameras/groups/:id/cameras',
+            name: 'GroupCameras',
+            component: () => import('@/views/cameras/group-cameras.vue'),
+            meta: {
+              title: '分组摄像头管理',
+              hidden: true // 在菜单中隐藏
+            }
+          }
+        ]
       },
       {
         path: '/ai',
@@ -200,6 +220,15 @@ const routes: Array<RouteRecordRaw> = [
             }
           },
           {
+            path: '/system/roles',
+            name: 'SystemRoles',
+            component: () => import('@/views/system/roles.vue'),
+            meta: {
+              title: '角色管理',
+              icon: 'UserFilled'
+            }
+          },
+          {
             path: '/system/logs',
             name: 'SystemLogs',
             component: () => import('@/views/system/logs.vue'),
@@ -259,6 +288,37 @@ router.beforeEach(async (to, from, next) => {
       // 未登录，重定向到登录页
       next({ name: 'Login', query: { redirect: to.fullPath } })
       return
+    }
+    
+    // 检查页面权限
+    const routePath = to.path
+    
+    // 对于系统管理相关页面，检查页面权限
+    if (routePath.startsWith('/system')) {
+      if (!userStore.hasPagePermission('/system')) {
+        // 没有系统管理权限，重定向到首页
+        next({ name: 'Dashboard' })
+        return
+      }
+    }
+    
+    // 检查其他页面权限
+    const pagePermissionMap: Record<string, string> = {
+      '/cameras': '/cameras',
+      '/ai': '/ai',
+      '/events': '/events',
+      '/diagnosis': '/diagnosis'
+    }
+    
+    for (const [pathPrefix, permission] of Object.entries(pagePermissionMap)) {
+      if (routePath.startsWith(pathPrefix)) {
+        if (!userStore.hasPagePermission(permission)) {
+          // 没有页面权限，重定向到首页
+          next({ name: 'Dashboard' })
+          return
+        }
+        break
+      }
     }
   } else {
     // 不需要认证的页面，如果已登录则重定向到首页

@@ -84,7 +84,13 @@ async def init_db():
     """初始化数据库表和基础数据"""
     try:
         # 导入所有模型以确保它们被注册
-        from models import user, camera, ai_algorithm, event, system, diagnosis
+        from models.user import User, UserSession, UserLoginLog
+        from models.role import Role, Permission, UserRole
+        from models.camera import Camera, CameraGroup, CameraGroupMember
+        from models.ai_algorithm import AIAlgorithm, AIModel, AIService
+        from models.event import Event, EventRule, EventNotification
+        from models.diagnosis import DiagnosisTask, DiagnosisResult, DiagnosisAlarm, DiagnosisTemplate
+        from models.system import SystemConfig, SystemVersion, DataRetentionPolicy, MessageCenter, SystemLog, SystemMetrics, License
         
         # 创建所有表
         try:

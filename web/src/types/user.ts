@@ -6,11 +6,13 @@ export interface User {
   email: string
   full_name: string
   role: 'admin' | 'operator' | 'viewer'
+  roles: string[]
   is_active: boolean
   avatar?: string
   phone?: string
   department?: string
   permissions: string[]
+  page_permissions: Record<string, boolean>
   last_login?: string
   created_at: string
   updated_at: string
