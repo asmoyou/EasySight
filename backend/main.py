@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from contextlib import asynccontextmanager
 import uvicorn
-from routers import auth, users, cameras, ai_algorithms, events, system, diagnosis
+from routers import auth, users, cameras, ai_algorithms, events, system, diagnosis, files, messages
 from database import init_db
 from config import settings
 
@@ -44,10 +44,14 @@ app.include_router(ai_algorithms.router, prefix="/api/v1/ai", tags=["AI应用中
 app.include_router(events.router, prefix="/api/v1/events", tags=["事件告警中心"])
 app.include_router(system.router, prefix="/api/v1/system", tags=["系统配置"])
 app.include_router(diagnosis.router, prefix="/api/v1/diagnosis", tags=["智能诊断"])
+app.include_router(messages.router, tags=["消息管理"])
 
 # 导入角色管理路由
 from routers.roles import router as roles_router
 app.include_router(roles_router, prefix="/api/v1/roles", tags=["角色管理"])
+
+# 注册文件管理路由
+app.include_router(files.router, prefix="/api/v1/files", tags=["文件管理"])
 
 @app.get("/")
 async def root():

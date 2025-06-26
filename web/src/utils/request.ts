@@ -2,7 +2,9 @@ import axios from 'axios'
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '@/stores/user'
-import { getToken } from '@/utils/auth'
+import { getToken, isTokenExpiringSoon } from '@/utils/auth'
+import { tokenManager } from '@/utils/tokenManager'
+import { TOKEN_CONFIG } from '@/config/token'
 import router from '@/router'
 
 // 创建axios实例
@@ -16,12 +18,31 @@ const service: AxiosInstance = axios.create({
 
 // 请求拦截器
 service.interceptors.request.use(
-  (config: AxiosRequestConfig) => {
-    // 添加认证token（logout接口不需要token）
+  async (config: AxiosRequestConfig) => {
+    // 添加认证token（logout和refresh接口不需要预检查）
     const token = getToken()
-    if (token && config.headers && !config.url?.includes('/api/v1/auth/logout')) {
-      config.headers.Authorization = `Bearer ${token}`
-    }
+    if (token && config.headers && !config.url?.includes('/api/v1/auth/logout') && !config.url?.includes('/api/v1/auth/refresh')) {
+       // 检查token是否即将过期，如果是则先刷新
+       if (TOKEN_CONFIG.CHECK_BEFORE_REQUEST && isTokenExpiringSoon(token)) {
+         if (TOKEN_CONFIG.ENABLE_CONSOLE_LOG) {
+           console.log('请求前检测到token即将过期，尝试刷新')
+         }
+         try {
+           await tokenManager.checkAndRefreshToken()
+           // 刷新后重新获取token
+           const newToken = getToken()
+           if (newToken) {
+             config.headers.Authorization = `Bearer ${newToken}`
+           }
+         } catch (error) {
+           console.error('请求前刷新token失败:', error)
+           // 刷新失败，仍然使用原token，让后续的401处理
+           config.headers.Authorization = `Bearer ${token}`
+         }
+       } else {
+         config.headers.Authorization = `Bearer ${token}`
+       }
+     }
     
     return config
   },

@@ -26,7 +26,7 @@ class User(Base):
     permissions = Column(JSON, default=list, comment="用户权限列表")
     
     # 关联关系
-    user_roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan", foreign_keys="UserRole.user_id")
+    user_roles = relationship("UserRole", back_populates="user", foreign_keys="UserRole.user_id", cascade="all, delete-orphan")
     
     # 多语言设置
     language = Column(String(10), default="zh-CN", comment="用户语言偏好")
@@ -36,12 +36,12 @@ class User(Base):
     last_login = Column(DateTime(timezone=True), comment="最后登录时间")
     login_count = Column(Integer, default=0, comment="登录次数")
     
+    # 用户描述
+    description = Column(Text, comment="用户描述")
+    
     # 时间戳
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
-    
-    # 备注信息
-    description = Column(Text, comment="用户描述")
     
     def verify_password(self, password: str) -> bool:
         """验证密码"""
@@ -58,6 +58,40 @@ class User(Base):
     
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"
+
+class UserMessage(Base):
+    """用户消息模型"""
+    __tablename__ = "user_messages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=False, comment="消息标题")
+    content = Column(Text, nullable=False, comment="消息内容")
+    message_type = Column(String(20), default="info", comment="消息类型：info/warning/error/success")
+    
+    # 发送者和接收者
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=True, comment="发送者ID，系统消息为空")
+    receiver_id = Column(Integer, ForeignKey("users.id"), nullable=False, comment="接收者ID")
+    
+    # 消息状态
+    is_read = Column(Boolean, default=False, comment="是否已读")
+    read_at = Column(DateTime(timezone=True), comment="阅读时间")
+    
+    # 消息分类
+    category = Column(String(50), default="system", comment="消息分类：system/user/notification")
+    
+    # 额外数据
+    extra_data = Column(JSON, comment="额外数据")
+    
+    # 时间戳
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    
+    # 关系
+    sender = relationship("User", foreign_keys=[sender_id], backref="sent_messages")
+    receiver = relationship("User", foreign_keys=[receiver_id], backref="received_messages")
+    
+    # 备注信息
+    description = Column(Text, comment="用户描述")
 
 class UserSession(Base):
     __tablename__ = "user_sessions"

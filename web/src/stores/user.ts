@@ -4,6 +4,7 @@ import type { User, LoginForm, LoginResponse } from '@/types/user'
 import { authApi } from '@/api/auth'
 import { getToken, setToken, removeToken } from '@/utils/auth'
 import { ElMessage } from 'element-plus'
+import { tokenManager } from '@/utils/tokenManager'
 
 export const useUserStore = defineStore('user', () => {
   const user = ref<User | null>(null)
@@ -33,6 +34,9 @@ export const useUserStore = defineStore('user', () => {
       setToken(access_token)
       localStorage.setItem('user_info', JSON.stringify(userInfo))
       
+      // 启动token监控
+      tokenManager.startMonitoring()
+      
       ElMessage.success('登录成功')
       return true
     } catch (error: any) {
@@ -48,6 +52,9 @@ export const useUserStore = defineStore('user', () => {
     } catch (error) {
       console.error('登出请求失败:', error)
     } finally {
+      // 停止token监控
+      tokenManager.stopMonitoring()
+      
       // 清除本地数据
       token.value = ''
       user.value = null
@@ -119,6 +126,9 @@ export const useUserStore = defineStore('user', () => {
         user.value = JSON.parse(storedUser)
         permissions.value = user.value?.permissions || []
         pagePermissions.value = user.value?.page_permissions || {}
+        
+        // 启动token监控
+        tokenManager.startMonitoring()
         
         // 验证token是否仍然有效
         getUserInfo().catch(() => {

@@ -485,14 +485,14 @@ onUnmounted(() => {
           .stats-value {
             font-size: 32px;
             font-weight: 600;
-            color: $text-color-primary;
+            color: var(--el-text-color-primary);
             line-height: 1;
             margin-bottom: 4px;
           }
           
           .stats-label {
             font-size: 14px;
-            color: $text-color-secondary;
+            color: var(--el-text-color-secondary);
           }
         }
       }
@@ -527,7 +527,7 @@ onUnmounted(() => {
         .card-title {
           font-size: 16px;
           font-weight: 600;
-          color: $text-color-primary;
+          color: var(--el-text-color-primary);
         }
       }
       
@@ -558,7 +558,7 @@ onUnmounted(() => {
           @include flex-vertical-center;
           gap: 12px;
           padding: 12px 0;
-          border-bottom: 1px solid $border-color-lighter;
+          border-bottom: 1px solid var(--el-border-color-lighter);
           
           &:last-child {
             border-bottom: none;
@@ -577,7 +577,7 @@ onUnmounted(() => {
             
             &.medium {
               background: rgba(230, 162, 60, 0.1);
-              color: $warning-color;
+              color: var(--el-color-warning);
             }
             
             &.low {
@@ -592,7 +592,7 @@ onUnmounted(() => {
             .event-title {
               font-size: 14px;
               font-weight: 500;
-              color: $text-color-primary;
+              color: var(--el-text-color-primary);
               margin-bottom: 4px;
             }
             
@@ -600,7 +600,7 @@ onUnmounted(() => {
               @include flex-vertical-center;
               gap: 12px;
               font-size: 12px;
-              color: $text-color-secondary;
+              color: var(--el-text-color-secondary);
             }
           }
           
@@ -617,12 +617,12 @@ onUnmounted(() => {
             
             &.processing {
               background: rgba(64, 158, 255, 0.1);
-              color: $primary-color;
+              color: var(--el-color-primary);
             }
             
             &.resolved {
               background: rgba(103, 194, 58, 0.1);
-              color: $success-color;
+              color: var(--el-color-success);
             }
           }
         }
@@ -638,7 +638,7 @@ onUnmounted(() => {
           
           .status-label {
             font-size: 14px;
-            color: $text-color-regular;
+            color: var(--el-text-color-regular);
             margin-bottom: 8px;
           }
           
@@ -653,7 +653,7 @@ onUnmounted(() => {
             .percentage {
               font-size: 14px;
               font-weight: 500;
-              color: $text-color-primary;
+              color: var(--el-text-color-primary);
               min-width: 40px;
               text-align: right;
             }
@@ -668,13 +668,13 @@ onUnmounted(() => {
                 
                 .network-label {
                   font-size: 12px;
-                  color: $text-color-secondary;
+                  color: var(--el-text-color-secondary);
                 }
                 
                 .network-speed {
                   font-size: 12px;
                   font-weight: 500;
-                  color: $text-color-primary;
+                  color: var(--el-text-color-primary);
                 }
               }
             }

@@ -10,3 +10,4 @@ asyncpg
 psycopg2-binary
 # Additional dependencies
 python-multipart
+psutil==5.9.6

@@ -3,6 +3,8 @@ import type { RouteRecordRaw } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
+import { isTokenExpiringSoon, getToken } from '@/utils/auth'
+import { TOKEN_CONFIG } from '@/config/token'
 
 // 配置 NProgress
 NProgress.configure({ showSpinner: false })
@@ -245,8 +247,46 @@ const routes: Array<RouteRecordRaw> = [
               title: '系统监控',
               icon: 'TrendCharts'
             }
+          },
+          {
+            path: '/system/media-nodes',
+            name: 'SystemMediaNodes',
+            component: () => import('@/views/system/media-nodes.vue'),
+            meta: {
+              title: '流媒体节点',
+              icon: 'Connection'
+            }
           }
         ]
+      },
+      // 个人中心和设置页面
+      {
+        path: '/profile',
+        name: 'Profile',
+        component: () => import('@/views/profile/index.vue'),
+        meta: {
+          title: '个人中心',
+          hidden: true // 在菜单中隐藏
+        }
+      },
+      {
+        path: '/settings',
+        name: 'Settings',
+        component: () => import('@/views/profile/settings.vue'),
+        meta: {
+          title: '账户设置',
+          hidden: true // 在菜单中隐藏
+        }
+      },
+      // 消息中心
+      {
+        path: '/messages',
+        name: 'Messages',
+        component: () => import('@/views/messages/index.vue'),
+        meta: {
+          title: '消息中心',
+          hidden: true // 在菜单中隐藏
+        }
       }
     ]
   },
@@ -288,6 +328,24 @@ router.beforeEach(async (to, from, next) => {
       // 未登录，重定向到登录页
       next({ name: 'Login', query: { redirect: to.fullPath } })
       return
+    }
+    
+    // 检查token是否即将过期，如果是则尝试刷新
+    if (TOKEN_CONFIG.CHECK_ON_ROUTE_CHANGE) {
+      const token = getToken()
+      if (token && isTokenExpiringSoon(token)) {
+        try {
+          await userStore.refreshToken()
+          if (TOKEN_CONFIG.ENABLE_CONSOLE_LOG) {
+            console.log('路由切换时Token已自动刷新')
+          }
+        } catch (error) {
+          console.error('Token刷新失败:', error)
+          // 刷新失败，重定向到登录页
+          next({ name: 'Login', query: { redirect: to.fullPath } })
+          return
+        }
+      }
     }
     
     // 检查页面权限

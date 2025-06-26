@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, Float
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Float, JSON
 from sqlalchemy.sql import func
 from database import Base
 from enum import Enum
@@ -16,9 +16,10 @@ class SystemConfig(Base):
     id = Column(Integer, primary_key=True, index=True)
     key = Column(String(100), unique=True, index=True, nullable=False, comment="配置键")
     value = Column(Text, comment="配置值")
-    value_type = Column(String(20), default="string", comment="值类型(string, int, float, bool, json)")
+    data_type = Column(String(20), default="string", comment="值类型(string, int, float, bool, json)")
     category = Column(String(50), comment="配置分类")
     description = Column(Text, comment="配置描述")
+    validation_rule = Column(Text, comment="验证规则")
     
     # 配置属性
     is_public = Column(Boolean, default=False, comment="是否公开(前端可访问)")
@@ -115,10 +116,11 @@ class SystemLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     level = Column(String(20), nullable=False, comment="日志级别")
     module = Column(String(50), comment="模块名称")
+    action = Column(String(100), comment="操作动作")
     message = Column(Text, nullable=False, comment="日志消息")
     
     # 详细信息
-    details = Column(JSON, comment="详细信息")
+    extra_data = Column(JSON, comment="额外数据")
     stack_trace = Column(Text, comment="堆栈跟踪")
     
     # 用户信息

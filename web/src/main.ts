@@ -9,6 +9,7 @@ import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import App from './App.vue'
 import router from './router'
 import './styles/index.scss'
+import { useUserStore } from './stores/user'
 
 const app = createApp(App)
 
@@ -24,3 +25,7 @@ app.use(ElementPlus, {
 })
 
 app.mount('#app')
+
+// 初始化用户状态和token监控
+const userStore = useUserStore()
+userStore.initUserFromStorage()

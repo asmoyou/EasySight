@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
 import config
 from utils import logTool
+from utils.systemMonitor import system_monitor
 from database import AsyncSessionLocal
 from models import Camera, MediaProxy
 
@@ -18,7 +19,8 @@ class MediaNodeManager:
             'name': config.MEDIA_NODE_NAME,
             'ip_address': config.MEDIA_NODE_IP,
             'port': config.MEDIA_NODE_PORT,
-            'secret_key': config.MEDIA_NODE_SECRET
+            'secret_key': config.MEDIA_NODE_SECRET,
+            'max_connections': config.MEDIA_NODE_MAX_CONNECTIONS
         }
     
     async def register_node(self):
@@ -40,6 +42,7 @@ class MediaNodeManager:
                     ).values(
                         name=self.node_info['name'],
                         secret_key=self.node_info['secret_key'],
+                        max_connections=self.node_info['max_connections'],
                         is_online=True,
                         last_heartbeat=datetime.now(timezone.utc)
                     )
@@ -53,6 +56,7 @@ class MediaNodeManager:
                         ip_address=self.node_info['ip_address'],
                         port=self.node_info['port'],
                         secret_key=self.node_info['secret_key'],
+                        max_connections=self.node_info['max_connections'],
                         is_online=True,
                         last_heartbeat=datetime.now(timezone.utc)
                     )
@@ -89,6 +93,46 @@ class MediaNodeManager:
                 
         except Exception as e:
             logger.error(f"Failed to update node status: {e}")
+    
+    async def collect_and_report_system_metrics(self):
+        """收集系统资源信息并上报到数据库"""
+        try:
+            logger.info("=== Starting to collect system metrics ===")
+            logger.debug("Starting to collect system metrics...")
+            
+            # 收集系统指标
+            metrics = await system_monitor.get_all_metrics()
+            
+            if not metrics:
+                logger.warning("Failed to collect system metrics")
+                return
+            
+            logger.debug(f"Collected metrics: {metrics}")
+            
+            # 提取关键指标
+            cpu_usage = metrics.get('cpu', {}).get('usage_percent', 0)
+            memory_usage = metrics.get('memory', {}).get('percent', 0)
+            bandwidth_usage = metrics.get('network', {}).get('send_rate', 0) + metrics.get('network', {}).get('recv_rate', 0)
+            
+            logger.debug(f"Extracted metrics - CPU: {cpu_usage}, Memory: {memory_usage}, Bandwidth: {bandwidth_usage}")
+            
+            # 获取当前连接数（这里可以根据实际情况获取，暂时使用0）
+            current_connections = 0  # TODO: 实现获取实际连接数的逻辑
+            
+            # 更新节点状态
+            await self.update_node_status(
+                cpu_usage=cpu_usage,
+                memory_usage=memory_usage,
+                bandwidth_usage=bandwidth_usage,
+                current_connections=current_connections
+            )
+            
+            logger.info(f"System metrics reported - CPU: {cpu_usage:.1f}%, Memory: {memory_usage:.1f}%, Bandwidth: {bandwidth_usage:.2f}MB/s")
+            
+        except Exception as e:
+            logger.error(f"Failed to collect and report system metrics: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
     
     async def unregister_node(self):
         """注销媒体节点"""
@@ -321,10 +365,6 @@ async def get_camera_by_id(camera_id: str):
     """根据摄像头ID获取摄像头信息"""
     return await camera_manager.get_camera_info(camera_id)
 
-async def update_media_worker_online():
-    """更新媒体工作节点在线状态"""
-    await media_node_manager.update_node_status()
-
 # 兼容性函数（保持原有接口）
 async def get_camera_list():
     """获取摄像头列表"""
@@ -339,7 +379,8 @@ async def get_camera_by_code(camera_code):
     return await camera_manager.get_camera_by_code(camera_code)
 
 async def update_media_worker_online(status_info=None):
-    """更新媒体工作节点在线状态"""
+    """更新媒体工作节点在线状态并上报系统指标"""
+    logger.info("=== update_media_worker_online called ===")
     if status_info:
         await media_node_manager.update_node_status(
             cpu_usage=status_info.get('cpu_usage'),
@@ -348,7 +389,9 @@ async def update_media_worker_online(status_info=None):
             current_connections=status_info.get('current_connections')
         )
     else:
-        await media_node_manager.update_node_status()
+        # 调用系统监控数据收集和上报
+        await media_node_manager.collect_and_report_system_metrics()
+    logger.info("=== update_media_worker_online completed ===")
 
 async def get_media_worker_info():
     """获取媒体工作节点信息"""

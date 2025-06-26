@@ -16,7 +16,7 @@ from utils.dataModel import media_node_manager
 # 设置日志
 logger = StandardLogger('main')
 
-check_interval = 300  # 检查间隔时间，单位秒
+check_interval = config.SYSTEM_MONITOR_INTERVAL  # 检查间隔时间，单位秒
 media_worker_status = {}
 stream_list = {
     "data": [],
@@ -228,12 +228,21 @@ async def time_job():
         # 清理过期视频与文件
         clear_video_last_hour('mediaworker/www/record')
         
-        # 更新媒体节点状态
-        await dataModel.update_media_worker_online()
+        # 更新媒体节点状态（包含系统监控数据）
+        if config.SYSTEM_MONITOR_ENABLED:
+            logger.debug("Starting system monitoring update...")
+            logger.info("About to call dataModel.update_media_worker_online()")
+            await dataModel.update_media_worker_online()
+            logger.info("dataModel.update_media_worker_online() completed")
+            logger.debug("System monitoring update completed")
+        else:
+            logger.debug("System monitoring is disabled")
         
         logger.debug("Time job completed")
     except Exception as e:
         logger.error(f"Time job error: {e}")
+        import traceback
+        logger.error(f"Time job traceback: {traceback.format_exc()}")
 
 @app.on_event("startup")
 async def startup_event():

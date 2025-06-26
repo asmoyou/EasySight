@@ -25,11 +25,32 @@ export const authApi = {
 
   // 修改密码
   changePassword(data: ChangePasswordForm) {
-    return request.post<ApiResponse<null>>('/api/v1/auth/change-password', data)
+    return request.post<ApiResponse<{ message: string }>>('/api/v1/auth/change-password', data)
+  },
+
+  // 更新当前用户信息
+  updateProfile(data: UserUpdateForm) {
+    return request.put<ApiResponse<User>>('/api/v1/auth/me', data)
   },
 
   // 验证token
   verifyToken() {
     return request.get<ApiResponse<{ valid: boolean }>>('/api/v1/auth/verify')
+  },
+
+  // 上传头像
+  uploadAvatar(file: File) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request.post<ApiResponse<{ message: string; avatar_url: string }>>('/api/v1/files/upload/avatar', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    })
+  },
+
+  // 删除头像
+  deleteAvatar() {
+    return request.delete<ApiResponse<{ message: string }>>('/api/v1/files/avatar')
   }
 }

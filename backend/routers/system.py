@@ -115,6 +115,13 @@ class SystemLogResponse(BaseModel):
     extra_data: Dict[str, Any]
     created_at: datetime
 
+class SystemLogListResponse(BaseModel):
+    items: List[SystemLogResponse]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
 class SystemMetricsResponse(BaseModel):
     id: int
     metric_name: str
@@ -536,7 +543,7 @@ async def create_system_message(
     )
 
 # 系统日志管理
-@router.get("/logs/", response_model=List[SystemLogResponse])
+@router.get("/logs/", response_model=SystemLogListResponse)
 async def get_system_logs(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(50, ge=1, le=200, description="每页数量"),
@@ -584,6 +591,13 @@ async def get_system_logs(
     offset = (page - 1) * page_size
     query = query.offset(offset).limit(page_size)
     
+    # 获取总数
+    count_query = select(func.count(SystemLog.id))
+    if conditions:
+        count_query = count_query.where(and_(*conditions))
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
+    
     result = await db.execute(query)
     logs = result.scalars().all()
     
@@ -596,20 +610,67 @@ async def get_system_logs(
             users = user_result.scalars().all()
             user_map = {u.id: u.username for u in users}
     
-    return [SystemLogResponse(
+    items = [SystemLogResponse(
         id=log.id,
         level=log.level,
-        module=log.module,
-        action=log.action,
+        module=log.module or "",
+        action=log.action or "",
         message=log.message,
         user_id=log.user_id,
         user_name=user_map.get(log.user_id),
         ip_address=log.ip_address,
         user_agent=log.user_agent,
         request_id=log.request_id,
-        extra_data=log.extra_data,
+        extra_data=log.extra_data or {},
         created_at=log.created_at
     ) for log in logs]
+    
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": (total + page_size - 1) // page_size
+    }
+
+@router.post("/logs/", response_model=SystemLogResponse)
+async def create_system_log(
+    log_data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """创建系统日志"""
+    log = SystemLog(
+        level=log_data.get("level", "info"),
+        module=log_data.get("module"),
+        action=log_data.get("action"),
+        message=log_data["message"],
+        user_id=current_user.id,
+        username=current_user.username,
+        ip_address=log_data.get("ip_address"),
+        user_agent=log_data.get("user_agent"),
+        request_id=log_data.get("request_id"),
+        extra_data=log_data.get("extra_data", {})
+    )
+    
+    db.add(log)
+    await db.commit()
+    await db.refresh(log)
+    
+    return SystemLogResponse(
+        id=log.id,
+        level=log.level,
+        module=log.module or "",
+        action=log.action or "",
+        message=log.message,
+        user_id=log.user_id,
+        user_name=log.username,
+        ip_address=log.ip_address,
+        user_agent=log.user_agent,
+        request_id=log.request_id,
+        extra_data=log.extra_data or {},
+        created_at=log.created_at
+    )
 
 # 系统指标管理
 @router.get("/metrics/", response_model=List[SystemMetricsResponse])

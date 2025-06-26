@@ -49,43 +49,47 @@ export interface SystemMetricsQuery {
 // 系统配置接口
 export interface SystemConfig {
   id: number
-  config_key: string
-  config_value: string
-  config_type: string
+  key: string
+  value: string
+  value_type: string
+  category: string
   description: string | null
   is_public: boolean
-  is_encrypted: boolean
+  is_editable: boolean
+  requires_restart: boolean
   created_at: string
   updated_at: string
+  updated_by: string | null
 }
 
 // 系统配置创建表单
 export interface SystemConfigCreate {
-  config_key: string
-  config_value: string
-  config_type: string
+  key: string
+  value: string
+  category: string
   description?: string
   is_public?: boolean
-  is_encrypted?: boolean
+  value_type?: string
+  is_editable?: boolean
+  requires_restart?: boolean
 }
 
 // 系统配置更新表单
 export interface SystemConfigUpdate {
-  config_value?: string
-  config_type?: string
+  value?: string
   description?: string
   is_public?: boolean
-  is_encrypted?: boolean
+  is_editable?: boolean
+  requires_restart?: boolean
 }
 
 // 系统日志接口
 export interface SystemLog {
   id: number
   level: string
+  module: string
+  action: string
   message: string
-  module: string | null
-  function_name: string | null
-  line_number: number | null
   user_id: number | null
   user_name: string | null
   ip_address: string | null
@@ -139,8 +143,12 @@ class SystemApi {
   }
 
   // 获取系统配置列表
-  getSystemConfigs() {
-    return request.get<ApiResponse<SystemConfig[]>>('/api/v1/system/configs/')
+  getSystemConfigs(params?: {
+    category?: string
+    search?: string
+    is_public?: boolean
+  }) {
+    return request.get<ApiResponse<SystemConfig[]>>('/api/v1/system/configs/', { params })
   }
 
   // 获取单个系统配置

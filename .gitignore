@@ -10,3 +10,5 @@ zlmediakitServer/utils/__pycache__/
 zlmediakitServer/logs/
 zlmediakitServer/__pycache__/
 web/npm-debug.log
+logs/
+backend/utils/__pycache__/

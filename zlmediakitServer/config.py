@@ -36,11 +36,16 @@ zlm_port = get_int_from_env('zlm_port', 80)
 zlm_secret = os.getenv('zlm_secret', '035c73f7-bb6b-4889-a715-d9eb2d1925cc')
 
 # 媒体节点配置
-MEDIA_NODE_NAME = os.getenv('MEDIA_NODE_NAME', 'default-media-node')
-MEDIA_NODE_IP = os.getenv('MEDIA_NODE_IP', '127.0.0.1')
+MEDIA_NODE_NAME = os.getenv('MEDIA_NODE_NAME', 'meida-node-default')
+MEDIA_NODE_IP = os.getenv('MEDIA_NODE_IP', '192.168.2.177')
 MEDIA_NODE_PORT = get_int_from_env('MEDIA_NODE_PORT', 18080)
 MEDIA_NODE_SECRET = os.getenv('MEDIA_NODE_SECRET', 'media-node-secret-key')
+MEDIA_NODE_MAX_CONNECTIONS = get_int_from_env('MEDIA_NODE_MAX_CONNECTIONS', 300)
+
+# 系统监控配置
+SYSTEM_MONITOR_INTERVAL = get_int_from_env('SYSTEM_MONITOR_INTERVAL', 30)  # 系统监控上报间隔（秒）
+SYSTEM_MONITOR_ENABLED = get_bool_from_env('SYSTEM_MONITOR_ENABLED', True)  # 是否启用系统监控
 
 # 日志配置
-LOG_DEBUG = get_bool_from_env("LOG_DEBUG", False)
+LOG_DEBUG = get_bool_from_env("LOG_DEBUG", True)
 LOG_FILE = os.getenv('LOG_FILE', 'logs/mediaworker.log')

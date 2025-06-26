@@ -620,6 +620,98 @@ async def create_media_proxy(
         description=proxy.description
     )
 
+@router.put("/media-proxies/{proxy_id}", response_model=MediaProxyResponse)
+async def update_media_proxy(
+    proxy_id: int,
+    proxy_data: MediaProxyUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """更新媒体代理"""
+    # 获取现有代理
+    result = await db.execute(select(MediaProxy).where(MediaProxy.id == proxy_id))
+    proxy = result.scalar_one_or_none()
+    if not proxy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="媒体代理不存在"
+        )
+    
+    # 如果更新IP和端口，检查是否与其他代理冲突
+    if proxy_data.ip_address is not None and proxy_data.port is not None:
+        result = await db.execute(
+            select(MediaProxy).where(
+                and_(
+                    MediaProxy.ip_address == proxy_data.ip_address,
+                    MediaProxy.port == proxy_data.port,
+                    MediaProxy.id != proxy_id
+                )
+            )
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="该IP和端口的媒体代理已存在"
+            )
+    
+    # 更新字段
+    update_data = proxy_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(proxy, field, value)
+    
+    await db.commit()
+    await db.refresh(proxy)
+    
+    return MediaProxyResponse(
+        id=proxy.id,
+        name=proxy.name,
+        ip_address=proxy.ip_address,
+        port=proxy.port,
+        is_online=proxy.is_online,
+        cpu_usage=proxy.cpu_usage,
+        memory_usage=proxy.memory_usage,
+        bandwidth_usage=proxy.bandwidth_usage,
+        max_connections=proxy.max_connections,
+        current_connections=proxy.current_connections,
+        last_heartbeat=proxy.last_heartbeat,
+        created_at=proxy.created_at,
+        updated_at=proxy.updated_at,
+        description=proxy.description
+    )
+
+@router.delete("/media-proxies/{proxy_id}")
+async def delete_media_proxy(
+    proxy_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """删除媒体代理"""
+    # 获取现有代理
+    result = await db.execute(select(MediaProxy).where(MediaProxy.id == proxy_id))
+    proxy = result.scalar_one_or_none()
+    if not proxy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="媒体代理不存在"
+        )
+    
+    # 检查是否有摄像头正在使用此代理
+    camera_result = await db.execute(
+        select(Camera).where(Camera.media_proxy_id == proxy_id)
+    )
+    cameras_using_proxy = camera_result.scalars().all()
+    if cameras_using_proxy:
+        camera_names = [camera.name for camera in cameras_using_proxy]
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"无法删除媒体代理，以下摄像头正在使用：{', '.join(camera_names)}"
+        )
+    
+    await db.delete(proxy)
+    await db.commit()
+    
+    return {"message": "媒体代理删除成功"}
+
 # 摄像头分组管理
 @router.get("/groups/", response_model=List[CameraGroupResponse])
 async def get_camera_groups(

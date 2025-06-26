@@ -80,6 +80,7 @@
             <el-menu-item index="/system/roles">角色管理</el-menu-item>
             <el-menu-item index="/system/logs">系统日志</el-menu-item>
             <el-menu-item index="/system/metrics">系统监控</el-menu-item>
+            <el-menu-item index="/system/media-nodes">流媒体节点</el-menu-item>
           </el-sub-menu>
         </el-menu>
       </div>
@@ -141,13 +142,7 @@
           </el-tooltip>
           
           <!-- 通知 -->
-          <el-badge :value="notificationCount" :hidden="notificationCount === 0">
-            <el-button type="text" class="notification-btn">
-              <el-icon :size="18">
-                <Bell />
-              </el-icon>
-            </el-button>
-          </el-badge>
+          <MessageNotification ref="messageNotificationRef" />
           
           <!-- 用户菜单 -->
           <el-dropdown trigger="click" class="user-dropdown">
@@ -213,13 +208,14 @@ import {
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useThemeStore } from '@/stores/theme'
+import MessageNotification from '@/components/MessageNotification.vue'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const themeStore = useThemeStore()
 
-const notificationCount = ref(3) // 示例通知数量
+const messageNotificationRef = ref()
 
 // 当前激活的菜单项
 const activeMenu = computed(() => {
@@ -397,8 +393,8 @@ watch(
     
     .header {
       height: $header-height;
-      background: $header-bg-color;
-      border-bottom: 1px solid $header-border-color;
+      background: var(--el-bg-color);
+      border-bottom: 1px solid var(--el-border-color-lighter);
       @include flex-between;
       padding: 0 24px;
       
@@ -417,16 +413,16 @@ watch(
         .breadcrumb {
           :deep(.el-breadcrumb__item) {
             .el-breadcrumb__inner {
-              color: $text-color-regular;
+              color: var(--el-text-color-regular);
               
               &:hover {
-                color: $primary-color;
+                color: var(--el-color-primary);
               }
             }
             
             &:last-child {
               .el-breadcrumb__inner {
-                color: $text-color-primary;
+                color: var(--el-text-color-primary);
                 font-weight: 500;
               }
             }
@@ -463,13 +459,13 @@ watch(
             
             .username {
               font-size: 14px;
-              color: $text-color-primary;
+              color: var(--el-text-color-primary);
               font-weight: 500;
             }
             
             .arrow-down {
               font-size: 12px;
-              color: $text-color-secondary;
+              color: var(--el-text-color-secondary);
             }
           }
         }
@@ -479,7 +475,7 @@ watch(
     .page-content {
       flex: 1;
       padding: 24px;
-      background: $bg-color-page;
+      background: var(--el-bg-color-page);
       overflow-y: auto;
       @include scrollbar();
     }

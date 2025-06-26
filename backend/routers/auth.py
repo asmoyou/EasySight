@@ -42,6 +42,12 @@ class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str
 
+class UpdateProfileRequest(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    department: Optional[str] = None
+
 class UserInfo(BaseModel):
     id: int
     username: str
@@ -321,6 +327,55 @@ async def change_password(
     await db.commit()
     
     return {"message": "密码修改成功"}
+
+@router.put("/me", response_model=UserInfo)
+async def update_current_user_profile(
+    request: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """更新当前用户信息"""
+    # 检查邮箱是否已被其他用户使用
+    if request.email and request.email != current_user.email:
+        result = await db.execute(select(User).where(and_(User.email == request.email, User.id != current_user.id)))
+        if result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="邮箱已被其他用户使用"
+            )
+    
+    # 更新用户信息
+    if request.full_name is not None:
+        current_user.full_name = request.full_name
+    if request.email is not None:
+        current_user.email = request.email
+    if request.phone is not None:
+        current_user.phone = request.phone
+    if request.department is not None:
+        current_user.department = request.department
+    
+    await db.commit()
+    await db.refresh(current_user)
+    
+    # 获取用户的角色和权限信息
+    user_roles_permissions = await get_user_roles_and_permissions(current_user, db)
+    
+    return UserInfo(
+        id=current_user.id,
+        username=current_user.username,
+        email=current_user.email,
+        full_name=current_user.full_name,
+        phone=current_user.phone,
+        avatar=current_user.avatar,
+        role=user_roles_permissions["roles"][0] if user_roles_permissions["roles"] else "viewer",
+        roles=user_roles_permissions["roles"],
+        permissions=user_roles_permissions["permissions"],
+        page_permissions=user_roles_permissions["page_permissions"],
+        language=current_user.language,
+        is_active=current_user.is_active,
+        last_login=current_user.last_login,
+        created_at=current_user.created_at
+    )
 
 @router.post("/register", response_model=UserInfo)
 async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):

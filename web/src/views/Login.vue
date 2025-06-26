@@ -172,13 +172,13 @@ onMounted(() => {
       .title {
         font-size: 28px;
         font-weight: 600;
-        color: $text-color-primary;
+        color: var(--el-text-color-primary);
         margin: 0 0 8px 0;
       }
       
       .subtitle {
         font-size: 14px;
-        color: $text-color-secondary;
+        color: var(--el-text-color-secondary);
         margin: 0;
       }
     }
@@ -191,7 +191,7 @@ onMounted(() => {
         .el-checkbox {
           :deep(.el-checkbox__label) {
             font-size: 14px;
-            color: $text-color-regular;
+            color: var(--el-text-color-regular);
           }
         }
         
@@ -221,7 +221,7 @@ onMounted(() => {
       
       .copyright {
         font-size: 12px;
-        color: $text-color-placeholder;
+        color: var(--el-text-color-placeholder);
         margin: 0;
       }
     }
