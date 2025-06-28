@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import { getRefreshToken } from '@/utils/auth'
 import type { LoginForm, LoginResponse, User, ChangePasswordForm } from '@/types/user'
 import type { ApiResponse } from '@/types/api'
 
@@ -15,7 +16,13 @@ export const authApi = {
 
   // 刷新token
   refreshToken() {
-    return request.post<ApiResponse<{ access_token: string }>>('/api/v1/auth/refresh')
+    const refreshToken = getRefreshToken()
+    if (!refreshToken) {
+      throw new Error('No refresh token available')
+    }
+    return request.post<ApiResponse<{ access_token: string }>>('/api/v1/auth/refresh', {
+      refresh_token: refreshToken
+    })
   },
 
   // 获取当前用户信息

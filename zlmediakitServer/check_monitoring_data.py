@@ -32,7 +32,7 @@ async def check_monitoring_data():
             # 查询媒体节点信息
             stmt = select(MediaProxy).where(
                 MediaProxy.ip_address == '127.0.0.1',
-                MediaProxy.port == 18080
+                MediaProxy.port == config.MEDIA_NODE_PORT
             )
             result = await session.execute(stmt)
             proxy = result.scalar_one_or_none()

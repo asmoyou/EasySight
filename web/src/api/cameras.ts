@@ -44,7 +44,22 @@ export const cameraApi = {
   // 获取摄像头统计信息
   getCameraStats() {
     return request.get<ApiResponse<CameraStats>>('/api/v1/cameras/stats/overview')
-  }
+  },
+
+  // 获取摄像头预览地址
+  getPreview(id: number) {
+    return request.get<ApiResponse<{
+      camera_id: number
+      camera_code: string
+      camera_name: string
+      status: string
+      stream_url: string
+      preview_url: string
+      media_proxy_name?: string
+    }>>(`/api/v1/cameras/${id}/preview`)
+  },
+
+
 }
 
 export const mediaProxyApi = {

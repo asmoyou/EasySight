@@ -121,7 +121,7 @@ async def get_stream_list():
     if time.time() - stream_list['update_time'] < 10:
         record_list = stream_list['data']
     else:
-        media_worker_list = await dataModel.media_proxy_manager.get_all_media_proxies()
+        media_worker_list = await dataModel.media_proxy_manager.get_media_proxy_list()
         for media_worker_info in media_worker_list:
             if media_worker_info['is_online']:
                 zlmediaClient = ZLMediaRestfulApi(media_worker_info['ip_address'], media_worker_info['port'], media_worker_info.get('secret_key', ''))

@@ -110,6 +110,7 @@ class MediaProxyCreate(BaseModel):
     name: str
     ip_address: str
     port: int
+    zlm_port: int = 8060
     secret_key: Optional[str] = None
     max_connections: int = 100
     description: Optional[str] = None
@@ -118,6 +119,7 @@ class MediaProxyUpdate(BaseModel):
     name: Optional[str] = None
     ip_address: Optional[str] = None
     port: Optional[int] = None
+    zlm_port: Optional[int] = None
     secret_key: Optional[str] = None
     max_connections: Optional[int] = None
     is_online: Optional[bool] = None
@@ -128,6 +130,7 @@ class MediaProxyResponse(BaseModel):
     name: str
     ip_address: str
     port: int
+    zlm_port: int
     is_online: bool
     cpu_usage: Optional[float]
     memory_usage: Optional[float]
@@ -564,6 +567,7 @@ async def get_media_proxies(
         name=proxy.name,
         ip_address=proxy.ip_address,
         port=proxy.port,
+        zlm_port=proxy.zlm_port,
         is_online=proxy.is_online,
         cpu_usage=proxy.cpu_usage,
         memory_usage=proxy.memory_usage,
@@ -928,3 +932,56 @@ async def get_group_cameras(
         page_size=page_size,
         total_pages=total_pages
     )
+
+@router.get("/{camera_id}/preview")
+async def get_camera_preview(
+    camera_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取摄像头预览流地址"""
+    # 查询摄像头
+    result = await db.execute(select(Camera).where(Camera.id == camera_id))
+    camera = result.scalar_one_or_none()
+    
+    if not camera:
+        raise HTTPException(status_code=404, detail="摄像头不存在")
+    
+    if not camera.is_active:
+        raise HTTPException(status_code=400, detail="摄像头未启用")
+    
+    if camera.status == CameraStatus.OFFLINE:
+        raise HTTPException(status_code=503, detail="摄像头离线")
+    
+    if not camera.stream_url:
+        raise HTTPException(status_code=400, detail="摄像头未配置视频流地址")
+    
+    # 构建预览流地址 - 通过流媒体服务器转码
+    preview_url = None
+    
+    # 如果配置了媒体代理，则通过代理访问
+    if camera.media_proxy_id and camera.code:
+        # 查询媒体代理信息
+        proxy_result = await db.execute(select(MediaProxy).where(MediaProxy.id == camera.media_proxy_id))
+        media_proxy = proxy_result.scalar_one_or_none()
+        
+        if media_proxy and media_proxy.is_online:
+            # 生成ZLMediaKit转码后的地址格式：http://IP:ZLM_Port/rtsp/视频编码.live.mp4
+            preview_url = f"http://{media_proxy.ip_address}:{media_proxy.zlm_port}/rtsp/{camera.code}.live.mp4"
+        elif media_proxy:
+            raise HTTPException(status_code=503, detail="媒体代理节点离线")
+        else:
+            raise HTTPException(status_code=400, detail="媒体代理节点不存在")
+    
+    if not preview_url:
+        raise HTTPException(status_code=400, detail="摄像头未配置媒体代理节点或视频编码")
+    
+    return {
+        "camera_id": camera.id,
+        "camera_code": camera.code,
+        "camera_name": camera.name,
+        "status": camera.status,
+        "stream_url": camera.stream_url,
+        "preview_url": preview_url,
+        "media_proxy_name": camera.media_proxy_name
+    }

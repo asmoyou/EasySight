@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User, LoginForm, LoginResponse } from '@/types/user'
 import { authApi } from '@/api/auth'
-import { getToken, setToken, removeToken } from '@/utils/auth'
+import { getToken, setToken, removeToken, setRefreshToken } from '@/utils/auth'
 import { ElMessage } from 'element-plus'
 import { tokenManager } from '@/utils/tokenManager'
 
@@ -22,7 +22,7 @@ export const useUserStore = defineStore('user', () => {
   const login = async (loginForm: LoginForm): Promise<boolean> => {
     try {
       const response = await authApi.login(loginForm)
-      const { access_token, user_info: userInfo } = response.data
+      const { access_token, refresh_token, user_info: userInfo } = response.data
       
       // 保存token和用户信息
       token.value = access_token
@@ -32,6 +32,7 @@ export const useUserStore = defineStore('user', () => {
       
       // 保存到本地存储
       setToken(access_token)
+      setRefreshToken(refresh_token)
       localStorage.setItem('user_info', JSON.stringify(userInfo))
       
       // 启动token监控

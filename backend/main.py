@@ -3,18 +3,48 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from contextlib import asynccontextmanager
 import uvicorn
+import asyncio
+import logging
 from routers import auth, users, cameras, ai_algorithms, events, system, diagnosis, files, messages
 from database import init_db
 from config import settings
+from utils.camera_monitor import camera_monitor
+
+# 全局任务管理
+background_tasks = set()
+
+# 摄像头状态监控任务
+async def camera_monitoring_task():
+    """摄像头状态监控后台任务"""
+    while True:
+        try:
+            await camera_monitor.monitor_all_cameras()
+            # 每30秒检查一次
+            await asyncio.sleep(30)
+        except Exception as e:
+            logging.error(f"Camera monitoring task error: {e}")
+            await asyncio.sleep(60)  # 出错时等待更长时间
 
 # 应用生命周期管理
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 启动时初始化数据库
     await init_db()
+    
+    # 启动摄像头监控任务
+    task = asyncio.create_task(camera_monitoring_task())
+    background_tasks.add(task)
+    task.add_done_callback(background_tasks.discard)
+    
+    logging.info("Camera monitoring task started")
+    
     yield
+    
     # 关闭时的清理工作
-    pass
+    for task in background_tasks:
+        task.cancel()
+    await asyncio.gather(*background_tasks, return_exceptions=True)
+    logging.info("Background tasks stopped")
 
 # 创建FastAPI应用实例
 app = FastAPI(

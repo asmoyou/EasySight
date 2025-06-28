@@ -1,0 +1,128 @@
+import asyncio
+import aiohttp
+import logging
+from datetime import datetime, timezone
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from database import get_db
+from models.camera import Camera, CameraStatus
+from typing import List, Optional
+
+logger = logging.getLogger(__name__)
+
+class CameraMonitor:
+    """摄像头状态监控器"""
+    
+    def __init__(self):
+        self.session_timeout = aiohttp.ClientTimeout(total=10)  # 10秒超时
+    
+    async def check_rtsp_stream(self, stream_url: str) -> bool:
+        """检查RTSP流是否可用"""
+        try:
+            # 简单的RTSP连接测试
+            # 这里可以使用更复杂的RTSP客户端库，如opencv-python
+            import cv2
+            
+            # 使用OpenCV测试RTSP流
+            cap = cv2.VideoCapture(stream_url)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                cap.release()
+                return ret and frame is not None
+            return False
+        except Exception as e:
+            logger.debug(f"RTSP stream check failed for {stream_url}: {e}")
+            return False
+    
+    async def check_http_stream(self, stream_url: str) -> bool:
+        """检查HTTP流是否可用"""
+        try:
+            async with aiohttp.ClientSession(timeout=self.session_timeout) as session:
+                async with session.head(stream_url) as response:
+                    return response.status == 200
+        except Exception as e:
+            logger.debug(f"HTTP stream check failed for {stream_url}: {e}")
+            return False
+    
+    async def check_camera_status(self, camera: Camera) -> CameraStatus:
+        """检查单个摄像头状态"""
+        if not camera.stream_url:
+            return CameraStatus.ERROR
+        
+        # 根据流URL类型选择检测方法
+        if camera.stream_url.startswith('rtsp://'):
+            is_available = await self.check_rtsp_stream(camera.stream_url)
+        elif camera.stream_url.startswith('http://') or camera.stream_url.startswith('https://'):
+            is_available = await self.check_http_stream(camera.stream_url)
+        else:
+            logger.warning(f"Unsupported stream URL format: {camera.stream_url}")
+            return CameraStatus.ERROR
+        
+        return CameraStatus.ONLINE if is_available else CameraStatus.OFFLINE
+    
+    async def update_camera_status(self, db: AsyncSession, camera_id: int, status: CameraStatus):
+        """更新摄像头状态"""
+        try:
+            stmt = (
+                update(Camera)
+                .where(Camera.id == camera_id)
+                .values(
+                    status=status,
+                    last_heartbeat=datetime.now(timezone.utc)
+                )
+            )
+            await db.execute(stmt)
+            await db.commit()
+            logger.debug(f"Updated camera {camera_id} status to {status.value}")
+        except Exception as e:
+            logger.error(f"Failed to update camera {camera_id} status: {e}")
+            await db.rollback()
+    
+    async def monitor_all_cameras(self):
+        """监控所有摄像头状态"""
+        logger.info("Starting camera status monitoring...")
+        
+        async for db in get_db():
+            try:
+                # 获取所有启用的摄像头
+                result = await db.execute(
+                    select(Camera).where(Camera.is_active == True)
+                )
+                cameras = result.scalars().all()
+                
+                logger.info(f"Monitoring {len(cameras)} cameras")
+                
+                # 并发检查所有摄像头状态
+                tasks = []
+                for camera in cameras:
+                    task = self.check_and_update_camera(db, camera)
+                    tasks.append(task)
+                
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                
+                logger.info("Camera status monitoring completed")
+                
+            except Exception as e:
+                logger.error(f"Error in camera monitoring: {e}")
+            finally:
+                await db.close()
+    
+    async def check_and_update_camera(self, db: AsyncSession, camera: Camera):
+        """检查并更新单个摄像头状态"""
+        try:
+            new_status = await self.check_camera_status(camera)
+            
+            # 只有状态发生变化时才更新
+            if new_status != camera.status:
+                await self.update_camera_status(db, camera.id, new_status)
+                logger.info(f"Camera {camera.code} status changed: {camera.status.value} -> {new_status.value}")
+            
+        except Exception as e:
+            logger.error(f"Error checking camera {camera.code}: {e}")
+            # 如果检查失败，标记为错误状态
+            if camera.status != CameraStatus.ERROR:
+                await self.update_camera_status(db, camera.id, CameraStatus.ERROR)
+
+# 全局监控器实例
+camera_monitor = CameraMonitor()

@@ -31,16 +31,18 @@ minio_secure = get_bool_from_env('minio_secure', False)
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://rotanova:RotaNova%402025@127.0.0.1:5432/easysight')
 
 # ZLMediaKit配置
-zlm_host = os.getenv('zlm_host', '127.0.0.1')
-zlm_port = get_int_from_env('zlm_port', 80)
-zlm_secret = os.getenv('zlm_secret', '035c73f7-bb6b-4889-a715-d9eb2d1925cc')
+# ZLMediaKit是底层媒体服务器，负责视频流的接收、转码和分发
+zlm_host = os.getenv('zlm_host', '127.0.0.1')  # ZLMediaKit服务器地址
+zlm_port = get_int_from_env('zlm_port', 8060)  # ZLMediaKit HTTP API端口，用于媒体流处理和管理
+zlm_secret = os.getenv('zlm_secret', '035c73f7-bb6b-4889-a715-d9eb2d1925cc')  # ZLMediaKit API密钥
 
 # 媒体节点配置
-MEDIA_NODE_NAME = os.getenv('MEDIA_NODE_NAME', 'meida-node-default')
-MEDIA_NODE_IP = os.getenv('MEDIA_NODE_IP', '192.168.2.177')
-MEDIA_NODE_PORT = get_int_from_env('MEDIA_NODE_PORT', 18080)
-MEDIA_NODE_SECRET = os.getenv('MEDIA_NODE_SECRET', 'media-node-secret-key')
-MEDIA_NODE_MAX_CONNECTIONS = get_int_from_env('MEDIA_NODE_MAX_CONNECTIONS', 300)
+# 媒体节点是流媒体服务的HTTP API服务，提供摄像头管理和流媒体代理功能
+MEDIA_NODE_NAME = os.getenv('MEDIA_NODE_NAME', 'meida-node-default')  # 媒体节点名称
+MEDIA_NODE_IP = os.getenv('MEDIA_NODE_IP', '192.168.2.177')  # 媒体节点IP地址
+MEDIA_NODE_PORT = get_int_from_env('MEDIA_NODE_PORT', 18080)  # 媒体节点HTTP API端口，对外提供流媒体服务接口
+MEDIA_NODE_SECRET = os.getenv('MEDIA_NODE_SECRET', 'media-node-secret-key')  # 媒体节点认证密钥
+MEDIA_NODE_MAX_CONNECTIONS = get_int_from_env('MEDIA_NODE_MAX_CONNECTIONS', 300)  # 最大连接数限制
 
 # 系统监控配置
 SYSTEM_MONITOR_INTERVAL = get_int_from_env('SYSTEM_MONITOR_INTERVAL', 30)  # 系统监控上报间隔（秒）

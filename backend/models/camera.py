@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, Float, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, Float, JSON, Enum, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from database import Base
@@ -115,7 +115,8 @@ class MediaProxy(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, comment="节点名称")
     ip_address = Column(String(45), nullable=False, comment="节点IP")
-    port = Column(Integer, nullable=False, comment="节点端口")
+    port = Column(Integer, nullable=False, comment="流媒体服务端口")
+    zlm_port = Column(Integer, nullable=False, default=8060, comment="ZLMediaKit端口")
     secret_key = Column(String(255), comment="密钥")
     
     # 状态信息

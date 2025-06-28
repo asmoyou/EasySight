@@ -19,6 +19,7 @@ class MediaNodeManager:
             'name': config.MEDIA_NODE_NAME,
             'ip_address': config.MEDIA_NODE_IP,
             'port': config.MEDIA_NODE_PORT,
+            'zlm_port': config.zlm_port,
             'secret_key': config.MEDIA_NODE_SECRET,
             'max_connections': config.MEDIA_NODE_MAX_CONNECTIONS
         }
@@ -41,6 +42,7 @@ class MediaNodeManager:
                         MediaProxy.id == existing_node.id
                     ).values(
                         name=self.node_info['name'],
+                        zlm_port=self.node_info['zlm_port'],
                         secret_key=self.node_info['secret_key'],
                         max_connections=self.node_info['max_connections'],
                         is_online=True,
@@ -55,6 +57,7 @@ class MediaNodeManager:
                         name=self.node_info['name'],
                         ip_address=self.node_info['ip_address'],
                         port=self.node_info['port'],
+                        zlm_port=self.node_info['zlm_port'],
                         secret_key=self.node_info['secret_key'],
                         max_connections=self.node_info['max_connections'],
                         is_online=True,
