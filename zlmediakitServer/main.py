@@ -82,12 +82,12 @@ async def handle_play(request: Request):
 async def handle_not_found(request: Request):
     data = await request.json()
     camera_id = data['stream']
-    camera_info = await dataModel.get_camera_by_id(camera_id)
-    try:
+    camera_info = await dataModel.get_camera_by_code(camera_id)
+    try: 
         if camera_info and camera_info.get('media_proxy_id'):
             media_worker_info = await dataModel.media_proxy_manager.get_media_proxy_info(camera_info['media_proxy_id'])
             if media_worker_info and media_worker_info['is_online']:
-                zlmediaClient = ZLMediaRestfulApi(media_worker_info['ip_address'], media_worker_info['port'], media_worker_info.get('secret_key', ''))
+                zlmediaClient = ZLMediaRestfulApi(media_worker_info['ip_address'], media_worker_info['zlm_port'], media_worker_info.get('secret_key', ''))
                 # 判断 camera_info['stream_url'] 是否可访问
                 # if await videoTool.check_rtsp_available(camera_info['stream_url']):
                 #     data = zlmediaClient.add_stream(camera_id, camera_info['stream_url'])
@@ -124,7 +124,7 @@ async def get_stream_list():
         media_worker_list = await dataModel.media_proxy_manager.get_media_proxy_list()
         for media_worker_info in media_worker_list:
             if media_worker_info['is_online']:
-                zlmediaClient = ZLMediaRestfulApi(media_worker_info['ip_address'], media_worker_info['port'], media_worker_info.get('secret_key', ''))
+                zlmediaClient = ZLMediaRestfulApi(media_worker_info['ip_address'], media_worker_info['zlm_port'], media_worker_info.get('secret_key', ''))
                 # results = zlmediaClient.get_media_list()
                 loop = asyncio.get_running_loop()
                 results = await loop.run_in_executor(None, zlmediaClient.get_media_list)
@@ -140,12 +140,12 @@ async def delete_stream(request: Request):
     camera_id = data.get('camera_id', None)
     if camera_id is None:
         return {"code": 1, "msg": "Invalid request"}
-    camera_info = await dataModel.get_camera_by_id(camera_id)
+    camera_info = await dataModel.get_camera_by_code(camera_id)
     try:
         if camera_info and camera_info.get('media_proxy_id'):
             media_worker_info = await dataModel.media_proxy_manager.get_media_proxy_info(camera_info['media_proxy_id'])
             if media_worker_info:
-                zlmediaClient = ZLMediaRestfulApi(media_worker_info['ip_address'], media_worker_info['port'],
+                zlmediaClient = ZLMediaRestfulApi(media_worker_info['ip_address'], media_worker_info['zlm_port'],
                                                         media_worker_info.get('secret_key', ''))
                 stream_id = "__defaultVhost__/rtsp/{}".format(camera_id)
                 results = zlmediaClient.del_stream(stream_id)
@@ -168,12 +168,12 @@ async def get_snap(request: Request):
     camera_id = data.get('camera_id', None)
     if camera_id is None:
         return {"code": 1, "msg": "Invalid request"}
-    camera_info = await dataModel.get_camera_by_id(camera_id)
+    camera_info = await dataModel.get_camera_by_code(camera_id)
     try:
         if camera_info and camera_info.get('media_proxy_id'):
             media_worker_info = await dataModel.media_proxy_manager.get_media_proxy_info(camera_info['media_proxy_id'])
             if media_worker_info:
-                zlmediaClient = ZLMediaRestfulApi(media_worker_info['ip_address'], media_worker_info['port'],
+                zlmediaClient = ZLMediaRestfulApi(media_worker_info['ip_address'], media_worker_info['zlm_port'],
                                                         media_worker_info.get('secret_key', ''))
                 snap_data = zlmediaClient.get_snap(camera_info['stream_url'])
                 snap_path = '{}-snap.jpg'.format(camera_id)
@@ -226,7 +226,10 @@ async def time_job():
     """定时任务：清理过期视频和更新节点状态"""
     try:
         # 清理过期视频与文件
-        clear_video_last_hour('mediaworker/www/record')
+        import os
+        current_path = os.path.abspath(os.path.dirname(__file__))
+        record_path = os.path.join(current_path, 'mediaworker/www/record')
+        clear_video_last_hour(record_path)
         
         # 更新媒体节点状态（包含系统监控数据）
         if config.SYSTEM_MONITOR_ENABLED:

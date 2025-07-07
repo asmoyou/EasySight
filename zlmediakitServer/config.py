@@ -41,7 +41,7 @@ zlm_secret = os.getenv('zlm_secret', '035c73f7-bb6b-4889-a715-d9eb2d1925cc')  # 
 MEDIA_NODE_NAME = os.getenv('MEDIA_NODE_NAME', 'meida-node-default')  # 媒体节点名称
 MEDIA_NODE_IP = os.getenv('MEDIA_NODE_IP', '192.168.2.177')  # 媒体节点IP地址
 MEDIA_NODE_PORT = get_int_from_env('MEDIA_NODE_PORT', 18080)  # 媒体节点HTTP API端口，对外提供流媒体服务接口
-MEDIA_NODE_SECRET = os.getenv('MEDIA_NODE_SECRET', 'media-node-secret-key')  # 媒体节点认证密钥
+MEDIA_NODE_SECRET = os.getenv('MEDIA_NODE_SECRET', 'yC7agWK36NtD6hdJIuvK9pCn60Nu39Ww')  # 媒体节点认证密钥
 MEDIA_NODE_MAX_CONNECTIONS = get_int_from_env('MEDIA_NODE_MAX_CONNECTIONS', 300)  # 最大连接数限制
 
 # 系统监控配置

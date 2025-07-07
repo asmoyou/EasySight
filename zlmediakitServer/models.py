@@ -84,6 +84,7 @@ class MediaProxy(Base):
     name = Column(String(100), nullable=False, comment="节点名称")
     ip_address = Column(String(45), nullable=False, comment="节点IP")
     port = Column(Integer, nullable=False, comment="节点端口")
+    zlm_port = Column(Integer, comment="ZLMediaKit端口")
     secret_key = Column(String(255), comment="密钥")
     
     # 状态信息

@@ -408,48 +408,72 @@
         </div>
         <div class="camera-selector">
           <span>选择摄像头：</span>
-          <el-select
-            v-model="selectedCameraIds"
-            multiple
-            placeholder="请选择要预览的摄像头"
-            style="width: 300px"
-            :max-collapse-tags="3"
-            collapse-tags
-            collapse-tags-tooltip
-            @change="handleCameraSelection"
-          >
-            <el-option
-              v-for="camera in onlineCameras"
-              :key="camera.id"
-              :label="camera.name"
-              :value="camera.id"
-              :disabled="selectedCameraIds.length >= gridLayout && !selectedCameraIds.includes(camera.id)"
+          <div class="camera-selector-wrapper">
+            <el-select
+              v-model="selectedCameraIds"
+              multiple
+              placeholder="请选择要预览的摄像头"
+              style="width: 300px"
+              :max-collapse-tags="3"
+              collapse-tags
+              collapse-tags-tooltip
+              @change="handleCameraSelection"
             >
-              <span>{{ camera.name }}</span>
-              <span style="float: right; color: #8492a6; font-size: 13px">{{ camera.location || '未设置位置' }}</span>
-            </el-option>
-          </el-select>
+              <el-option
+                v-for="camera in onlineCameras"
+                :key="camera.id"
+                :label="camera.name"
+                :value="camera.id"
+                :disabled="selectedCameraIds.length >= gridLayout && !selectedCameraIds.includes(camera.id)"
+              >
+                <span>{{ camera.name }}</span>
+                <span style="float: right; color: #8492a6; font-size: 13px">{{ camera.location || '未设置位置' }}</span>
+              </el-option>
+            </el-select>
+
+          </div>
         </div>
       </div>
       
-      <div class="multi-preview-container" :class="`grid-${gridLayout}`">
+      <div 
+        class="multi-preview-container" 
+        :class="`grid-${gridLayout}`"
+        @dblclick="handleDoubleClick"
+        title="双击进入/退出全屏"
+      >
         <div
           v-for="(slot, index) in gridSlots"
           :key="index"
           class="preview-slot"
-          :class="{ 'has-video': slot.camera }"
+          :class="{ 
+            'has-video': slot.camera,
+            'drag-over': dragOverSlot === index
+          }"
+          @dragover="handleDragOver(index, $event)"
+          @dragleave="handleDragLeave(index)"
+          @drop="handleSlotDrop(index, $event)"
         >
-          <div v-if="slot.camera" class="video-wrapper">
+          <div 
+            v-if="slot.camera" 
+            class="video-wrapper"
+            :class="{ 'dragging': draggedFromSlot === index }"
+            draggable="true"
+            @dragstart="handleDragStart(slot.camera, index, $event)"
+            @dragend="handleDragEnd"
+          >
             <div class="video-header">
               <span class="camera-name">{{ slot.camera.name }}</span>
-              <el-button
-                size="small"
-                type="danger"
-                text
-                @click="removeCameraFromSlot(index)"
-              >
-                <el-icon><Close /></el-icon>
-              </el-button>
+              <div class="header-actions">
+                <el-icon class="drag-handle"><Rank /></el-icon>
+                <el-button
+                  size="small"
+                  type="danger"
+                  text
+                  @click="removeCameraFromSlot(index)"
+                >
+                  <el-icon><Close /></el-icon>
+                </el-button>
+              </div>
             </div>
             <video-preview
               :video_url="slot.previewUrl"
@@ -460,7 +484,7 @@
           </div>
           <div v-else class="empty-slot">
             <el-icon size="32"><VideoCamera /></el-icon>
-            <p>空闲位置</p>
+            <p>拖拽摄像头到此处</p>
             <p class="slot-number">{{ index + 1 }}</p>
           </div>
         </div>
@@ -469,7 +493,10 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="handleCloseMultiPreview">关闭</el-button>
-          <el-button type="primary" @click="handleFullscreen">全屏显示</el-button>
+          <el-button type="primary" @click="handleFullscreen">
+            {{ isFullscreen ? '退出全屏' : '全屏显示' }}
+          </el-button>
+          <span class="fullscreen-tip">提示：双击视频区域或按F11快速切换全屏</span>
         </div>
       </template>
     </el-dialog>
@@ -477,9 +504,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Refresh, Plus, View, Edit, Delete, ArrowDown, VideoPlay, VideoCamera, Monitor, Close } from '@element-plus/icons-vue'
+import { Search, Refresh, Plus, View, Edit, Delete, ArrowDown, VideoPlay, VideoCamera, Monitor, Close, Rank } from '@element-plus/icons-vue'
 import { cameraApi, mediaProxyApi } from '@/api/cameras'
 import { getGroups, updateGroup } from '@/api/groups'
 import VideoPreview from '@/components/videoPreview.vue'
@@ -523,7 +550,12 @@ const previewUrl = ref('')
 const multiPreviewDialogVisible = ref(false)
 const gridLayout = ref(4) // 默认4分屏
 const selectedCameraIds = ref<number[]>([])
-const gridSlots = ref<Array<{ camera: Camera | null, previewUrl: string }>>([])
+const gridSlots = ref<Array<{ camera: Camera | null, previewUrl: string }>>([]);
+
+// 拖拽相关
+const draggedCamera = ref<Camera | null>(null)
+const draggedFromSlot = ref<number | null>(null)
+const dragOverSlot = ref<number | null>(null)
 
 // 表单数据
 const formData = ref<CameraCreateForm>({
@@ -1039,15 +1071,206 @@ const handleCloseMultiPreview = () => {
   multiPreviewDialogVisible.value = false
   selectedCameraIds.value = []
   gridSlots.value = []
+  // 清理拖拽状态
+  draggedCamera.value = null
+  draggedFromSlot.value = null
+  dragOverSlot.value = null
+}
+
+// 拖拽功能
+const handleDragStart = (camera: Camera, slotIndex: number, event: DragEvent) => {
+  draggedCamera.value = camera
+  draggedFromSlot.value = slotIndex
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', camera.id.toString())
+  }
+}
+
+const handleDragOver = (slotIndex: number, event: DragEvent) => {
+  event.preventDefault()
+  dragOverSlot.value = slotIndex
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+}
+
+const handleDragLeave = (slotIndex: number) => {
+  if (dragOverSlot.value === slotIndex) {
+    dragOverSlot.value = null
+  }
+}
+
+// 统一的槽位拖拽处理函数
+const handleSlotDrop = async (targetSlotIndex: number, event: DragEvent) => {
+  event.preventDefault()
+  dragOverSlot.value = null
+  
+  console.log('handleSlotDrop called:', {
+    targetSlotIndex,
+    draggedCamera: draggedCamera.value?.name,
+    draggedFromSlot: draggedFromSlot.value
+  })
+  
+  if (!draggedCamera.value) {
+    console.log('No dragged camera found')
+    return
+  }
+  
+  // 如果是从槽位拖拽（槽位间交换）
+  if (draggedFromSlot.value !== null) {
+    const sourceSlotIndex = draggedFromSlot.value
+    
+    // 防止拖拽到同一个位置
+    if (sourceSlotIndex === targetSlotIndex) {
+      console.log('Same slot, ignoring drop')
+      draggedCamera.value = null
+      draggedFromSlot.value = null
+      return
+    }
+    
+    const targetSlot = gridSlots.value[targetSlotIndex]
+    const sourceSlot = gridSlots.value[sourceSlotIndex]
+    
+    console.log('Performing slot exchange:', {
+      sourceSlot: sourceSlot.camera?.name,
+      targetSlot: targetSlot.camera?.name
+    })
+    
+    // 如果目标槽位为空，直接移动
+    if (!targetSlot.camera) {
+      gridSlots.value[targetSlotIndex] = {
+        camera: draggedCamera.value,
+        previewUrl: sourceSlot.previewUrl
+      }
+      gridSlots.value[sourceSlotIndex] = {
+        camera: null,
+        previewUrl: ''
+      }
+    } else {
+      // 如果目标槽位有摄像头，交换位置
+      const tempCamera = targetSlot.camera
+      const tempUrl = targetSlot.previewUrl
+      
+      gridSlots.value[targetSlotIndex] = {
+        camera: draggedCamera.value,
+        previewUrl: sourceSlot.previewUrl
+      }
+      gridSlots.value[sourceSlotIndex] = {
+        camera: tempCamera,
+        previewUrl: tempUrl
+      }
+    }
+    
+    console.log('Slot exchange completed')
+  }
+  
+  // 强制更新视图
+  await nextTick()
+  
+  // 清理拖拽状态
+  draggedCamera.value = null
+  draggedFromSlot.value = null
+}
+
+// 保留原有的handleDrop函数以防其他地方调用
+const handleDrop = async (targetSlotIndex: number, event: DragEvent) => {
+  return handleSlotDrop(targetSlotIndex, event)
+}
+
+const handleDragEnd = () => {
+  // 清理拖拽状态
+  draggedCamera.value = null
+  draggedFromSlot.value = null
+  dragOverSlot.value = null
+}
+
+
+
+
+
+// 全屏状态
+const isFullscreen = ref(false)
+
+// 检查是否处于全屏状态
+const checkFullscreenStatus = () => {
+  isFullscreen.value = !!(document.fullscreenElement || 
+    (document as any).webkitFullscreenElement || 
+    (document as any).mozFullScreenElement || 
+    (document as any).msFullscreenElement)
 }
 
 // 全屏显示
 const handleFullscreen = () => {
-  const element = document.querySelector('.multi-preview-dialog .el-dialog')
-  if (element) {
-    if (element.requestFullscreen) {
-      element.requestFullscreen()
+  if (isFullscreen.value) {
+    // 退出全屏
+    if (document.exitFullscreen) {
+      document.exitFullscreen()
+    } else if ((document as any).webkitExitFullscreen) {
+      (document as any).webkitExitFullscreen()
+    } else if ((document as any).mozCancelFullScreen) {
+      (document as any).mozCancelFullScreen()
+    } else if ((document as any).msExitFullscreen) {
+      (document as any).msExitFullscreen()
     }
+  } else {
+    // 进入全屏
+    const element = document.querySelector('.multi-preview-dialog')
+    if (element) {
+      if (element.requestFullscreen) {
+        element.requestFullscreen()
+      } else if ((element as any).webkitRequestFullscreen) {
+        // Safari
+        (element as any).webkitRequestFullscreen()
+      } else if ((element as any).msRequestFullscreen) {
+        // IE/Edge
+        (element as any).msRequestFullscreen()
+      } else if ((element as any).mozRequestFullScreen) {
+        // Firefox
+        (element as any).mozRequestFullScreen()
+      }
+    } else {
+      ElMessage.error('无法进入全屏模式')
+    }
+  }
+}
+
+// 双击进入/退出全屏
+const handleDoubleClick = () => {
+  handleFullscreen()
+}
+
+// 键盘事件处理
+const handleKeydown = (event: KeyboardEvent) => {
+  if (multiPreviewDialogVisible.value) {
+    switch (event.key) {
+      case 'Escape':
+        if (isFullscreen.value) {
+          handleFullscreen()
+        } else {
+          handleCloseMultiPreview()
+        }
+        break
+      case 'F11':
+        event.preventDefault()
+        handleFullscreen()
+        break
+      case 'f':
+      case 'F':
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault()
+          handleFullscreen()
+        }
+        break
+    }
+  }
+}
+
+// 全屏状态变化监听
+const handleFullscreenChange = () => {
+  checkFullscreenStatus()
+  if (isFullscreen.value) {
+    ElMessage.success('已进入全屏模式，按ESC或F11退出')
   }
 }
 
@@ -1058,6 +1281,27 @@ onMounted(async () => {
     loadMediaProxies(),
     loadCameraGroups()
   ])
+  
+  // 添加全屏状态变化监听
+  document.addEventListener('fullscreenchange', handleFullscreenChange)
+  document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
+  document.addEventListener('mozfullscreenchange', handleFullscreenChange)
+  document.addEventListener('MSFullscreenChange', handleFullscreenChange)
+  
+  // 添加键盘事件监听
+  document.addEventListener('keydown', handleKeydown)
+})
+
+// 组件卸载时清理事件监听器
+onUnmounted(() => {
+  // 清理全屏状态变化监听
+  document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
+  document.removeEventListener('mozfullscreenchange', handleFullscreenChange)
+  document.removeEventListener('MSFullscreenChange', handleFullscreenChange)
+  
+  // 清理键盘事件监听
+  document.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
@@ -1092,9 +1336,9 @@ onMounted(async () => {
 
 .preview-container {
   width: 100%;
-  height: 60vh;
-  min-height: 400px;
-  max-height: 600px;
+  height: 65vh;
+  min-height: 450px;
+  max-height: 70vh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1180,13 +1424,29 @@ onMounted(async () => {
 
 .multi-preview-container {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
-  height: 70vh;
-  min-height: 500px;
+  height: 82vh;
+  min-height: 700px;
+  max-height: 90vh;
   background: #000;
   border-radius: 8px;
-  padding: 8px;
+  padding: 4px;
+}
+
+/* 针对不同分屏的特殊高度调整 */
+.multi-preview-container.grid-9 {
+  height: 85vh;
+  min-height: 750px;
+  gap: 3px;
+  padding: 3px;
+}
+
+.multi-preview-container.grid-16 {
+  height: 88vh;
+  min-height: 800px;
+  gap: 2px;
+  padding: 2px;
 }
 
 /* 网格布局 */
@@ -1251,7 +1511,46 @@ onMounted(async () => {
   font-size: 14px;
   font-weight: 500;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
 }
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drag-handle {
+  cursor: grab;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.drag-handle:hover {
+  opacity: 1;
+}
+
+.video-wrapper[draggable="true"]:active .drag-handle {
+  cursor: grabbing;
+}
+
+/* 拖拽悬停效果 */
+.preview-slot.drag-over {
+  border-color: #67c23a !important;
+  background: rgba(103, 194, 58, 0.1);
+}
+
+/* 摄像头选择器样式 */
+.camera-selector-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+
 
 .multi-video-player {
   width: 100%;
@@ -1264,19 +1563,335 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #666;
+  color: #909399;
+  background: #f5f7fa;
+  border: 2px dashed #dcdfe6;
+  border-radius: 8px;
+  transition: all 0.3s ease;
   text-align: center;
 }
 
+.empty-slot:hover {
+  border-color: #409eff;
+  color: #409eff;
+  background: #f0f9ff;
+}
+
 .empty-slot p {
-  margin: 8px 0;
-  font-size: 14px;
+  margin: 4px 0;
+  font-size: 12px;
 }
 
 .slot-number {
-  font-size: 24px;
   font-weight: bold;
-  color: #999;
+  font-size: 14px !important;
+}
+
+/* 拖拽时的视觉反馈 */
+.video-wrapper[draggable="true"] {
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.video-wrapper.dragging {
+  opacity: 0.5;
+  transform: scale(0.95);
+}
+
+.preview-slot.drag-over .empty-slot {
+  border-color: #67c23a;
+  background: rgba(103, 194, 58, 0.1);
+  color: #67c23a;
+}
+
+.preview-slot.drag-over .empty-slot::before {
+  content: '释放以放置摄像头';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(103, 194, 58, 0.9);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 10;
+}
+
+/* 全屏模式样式优化 */
+:fullscreen .multi-preview-dialog .el-dialog {
+  margin: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+  background: linear-gradient(135deg, #0c1426 0%, #1a2332 25%, #0f1419 50%, #1e2a3a 75%, #0c1426 100%) !important;
+  background-size: 400% 400% !important;
+  animation: techGradient 15s ease infinite !important;
+  position: relative !important;
+}
+
+:fullscreen .multi-preview-dialog .el-dialog::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background: 
+    radial-gradient(circle at 20% 80%, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(0, 150, 255, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(100, 200, 255, 0.05) 0%, transparent 50%) !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+}
+
+:fullscreen .multi-preview-dialog .el-dialog__header {
+  display: none !important;
+}
+
+:fullscreen .multi-preview-dialog .el-dialog__body {
+  padding: 0 !important;
+  height: 100vh !important;
+  display: flex;
+  flex-direction: column;
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+:fullscreen .multi-preview-dialog .el-dialog__footer {
+  display: none !important;
+}
+
+:fullscreen .multi-preview-header {
+  display: none !important;
+}
+
+:fullscreen .multi-preview-container {
+  height: 100vh !important;
+  min-height: unset !important;
+  max-height: unset !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  gap: 2px !important;
+  padding: 8px !important;
+  background: rgba(0, 0, 0, 0.3) !important;
+  backdrop-filter: blur(5px) !important;
+  border: 1px solid rgba(0, 255, 255, 0.2) !important;
+  box-shadow: 
+    inset 0 0 20px rgba(0, 255, 255, 0.1),
+    0 0 30px rgba(0, 150, 255, 0.2) !important;
+}
+
+:fullscreen .multi-preview-container.grid-9 {
+  height: 100vh !important;
+  gap: 2px !important;
+  padding: 8px !important;
+}
+
+:fullscreen .multi-preview-container.grid-16 {
+  height: 100vh !important;
+  gap: 2px !important;
+  padding: 8px !important;
+}
+
+:fullscreen .preview-slot {
+  border-radius: 0 !important;
+  border-width: 1px !important;
+}
+
+:fullscreen .video-header {
+  padding: 4px 8px !important;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent) !important;
+}
+
+:fullscreen .camera-name {
+  font-size: 12px !important;
+}
+
+:fullscreen .empty-slot {
+  border-radius: 0 !important;
+  border-width: 1px !important;
+}
+
+:fullscreen .empty-slot p {
+  font-size: 10px !important;
+}
+
+/* WebKit全屏支持 */
+:-webkit-full-screen .multi-preview-dialog .el-dialog {
+  margin: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+  background: linear-gradient(135deg, #0c1426 0%, #1a2332 25%, #0f1419 50%, #1e2a3a 75%, #0c1426 100%) !important;
+  background-size: 400% 400% !important;
+  animation: techGradient 15s ease infinite !important;
+  position: relative !important;
+}
+
+:-webkit-full-screen .multi-preview-dialog .el-dialog::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background: 
+    radial-gradient(circle at 20% 80%, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(0, 150, 255, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(100, 200, 255, 0.05) 0%, transparent 50%) !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+}
+
+:-webkit-full-screen .multi-preview-dialog .el-dialog__header {
+  display: none !important;
+}
+
+:-webkit-full-screen .multi-preview-dialog .el-dialog__body {
+  padding: 0 !important;
+  height: 100vh !important;
+  display: flex;
+  flex-direction: column;
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+:-webkit-full-screen .multi-preview-dialog .el-dialog__footer {
+  display: none !important;
+}
+
+:-webkit-full-screen .multi-preview-header {
+  display: none !important;
+}
+
+:-webkit-full-screen .multi-preview-container {
+  height: 100vh !important;
+  min-height: unset !important;
+  max-height: unset !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  gap: 2px !important;
+  padding: 8px !important;
+  background: rgba(0, 0, 0, 0.3) !important;
+  backdrop-filter: blur(5px) !important;
+  border: 1px solid rgba(0, 255, 255, 0.2) !important;
+  box-shadow: 
+    inset 0 0 20px rgba(0, 255, 255, 0.1),
+    0 0 30px rgba(0, 150, 255, 0.2) !important;
+}
+
+:-webkit-full-screen .multi-preview-container.grid-9 {
+  height: 100vh !important;
+  gap: 2px !important;
+  padding: 8px !important;
+}
+
+:-webkit-full-screen .multi-preview-container.grid-16 {
+  height: 100vh !important;
+  gap: 2px !important;
+  padding: 8px !important;
+}
+
+:-webkit-full-screen .preview-slot {
+  border-radius: 0 !important;
+  border-width: 1px !important;
+}
+
+:-webkit-full-screen .video-header {
+  padding: 4px 8px !important;
+  background: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent) !important;
+}
+
+:-webkit-full-screen .camera-name {
+  font-size: 12px !important;
+}
+
+:-webkit-full-screen .empty-slot {
+  border-radius: 0 !important;
+  border-width: 1px !important;
+}
+
+:-webkit-full-screen .empty-slot p {
+  font-size: 10px !important;
+}
+
+/* 科技风格动画 */
+@keyframes techGradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* 全屏模式下的预览槽位科技风格 */
+:fullscreen .preview-slot,
+:-webkit-full-screen .preview-slot {
+  border: 1px solid rgba(0, 255, 255, 0.3) !important;
+  background: rgba(0, 0, 0, 0.4) !important;
+  backdrop-filter: blur(3px) !important;
+  box-shadow: 
+    inset 0 0 10px rgba(0, 255, 255, 0.1),
+    0 0 15px rgba(0, 150, 255, 0.15) !important;
+  transition: all 0.3s ease !important;
+}
+
+:fullscreen .preview-slot:hover,
+:-webkit-full-screen .preview-slot:hover {
+  border-color: rgba(0, 255, 255, 0.6) !important;
+  box-shadow: 
+    inset 0 0 15px rgba(0, 255, 255, 0.2),
+    0 0 25px rgba(0, 150, 255, 0.3) !important;
+}
+
+:fullscreen .empty-slot,
+:-webkit-full-screen .empty-slot {
+  background: linear-gradient(45deg, rgba(0, 255, 255, 0.05), rgba(0, 150, 255, 0.05)) !important;
+  border: 2px dashed rgba(0, 255, 255, 0.3) !important;
+  color: rgba(0, 255, 255, 0.8) !important;
+}
+
+:fullscreen .video-header,
+:-webkit-full-screen .video-header {
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.4)) !important;
+  border-bottom: 1px solid rgba(0, 255, 255, 0.2) !important;
+}
+
+:fullscreen .camera-name,
+:-webkit-full-screen .camera-name {
+  color: rgba(0, 255, 255, 0.9) !important;
+  text-shadow: 0 0 5px rgba(0, 255, 255, 0.5) !important;
+}
+
+/* 全屏提示样式 */
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.fullscreen-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-left: auto;
+}
+
+/* 多屏预览容器鼠标样式 */
+.multi-preview-container {
+  cursor: pointer;
+}
+
+.multi-preview-container:hover {
+  box-shadow: 0 0 10px rgba(64, 158, 255, 0.3);
 }
 
 /* 响应式设计 */
@@ -1289,6 +1904,10 @@ onMounted(async () => {
   .layout-controls,
   .camera-selector {
     justify-content: center;
+  }
+  
+  .fullscreen-tip {
+    display: none;
   }
 }
 

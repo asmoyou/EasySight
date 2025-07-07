@@ -19,6 +19,8 @@ const video_url = ref(props.video_url);
 const isLoading = ref(true)
 const hasError = ref(false)
 const errorMessage = ref('')
+// 生成唯一的容器ID
+const containerId = ref(`jesscontainer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`)
 
 onMounted(() =>{
   initPlayer()
@@ -29,11 +31,21 @@ onBeforeUnmount(() => {
   closePlayer()
 })
 
+// 监听video_url变化
+watch(() => props.video_url, (newUrl) => {
+  video_url.value = newUrl
+  if (newUrl && jessibuca) {
+    hasError.value = false
+    isLoading.value = true
+    playVideo()
+  }
+})
+
 function initPlayer(){
   try {
-    jessibuca = new window.JessibucaPro(
-        Object.assign({
-          container: document.getElementById('jesscontainer'),
+    jessibuca = new window['jessibuca-demo'](
+        Object.assign({},{
+          container: document.getElementById(containerId.value),
           decoder: '/js/decoder-pro.js',
           videoBuffer: 0.2,
           isResize: true, // 改为 true 以支持自适应
@@ -144,7 +156,7 @@ function retryPlay() {
 <template>
   <div class="jessibuca-container">
     <div 
-      id="jesscontainer" 
+      :id="containerId" 
       v-show="!hasError"
       class="video-container"
     ></div>
@@ -184,10 +196,7 @@ function retryPlay() {
 .video-container {
   width: 100%;
   height: 100%;
-  background-image: url('/images/video-bg.png');
-  background-size: contain;
-  background-repeat: no-repeat;
-  background-position: center;
+
   background-color: #000;
 }
 
