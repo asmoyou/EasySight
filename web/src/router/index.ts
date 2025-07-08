@@ -165,6 +165,24 @@ const routes: Array<RouteRecordRaw> = [
             }
           },
           {
+            path: '/diagnosis/tasks/:id',
+            name: 'DiagnosisTaskDetail',
+            component: () => import('@/views/diagnosis/task-detail.vue'),
+            meta: {
+              title: '任务详情',
+              hidden: true
+            }
+          },
+          {
+            path: '/diagnosis/results/:id',
+            name: 'DiagnosisResultDetail',
+            component: () => import('@/views/diagnosis/result-detail.vue'),
+            meta: {
+              title: '诊断结果详情',
+              hidden: true
+            }
+          },
+          {
             path: '/diagnosis/results',
             name: 'DiagnosisResults',
             component: () => import('@/views/diagnosis/results.vue'),

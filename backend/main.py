@@ -15,8 +15,8 @@ async def lifespan(app: FastAPI):
     # 启动时初始化数据库
     await init_db()
     
-    # 启动摄像头监控服务
-    asyncio.create_task(periodic_camera_monitor())
+    # 暂时禁用摄像头监控服务以避免启动问题
+    # asyncio.create_task(periodic_camera_monitor())
     
     yield
     # 关闭时的清理工作

@@ -59,6 +59,16 @@ export const cameraApi = {
     }>>(`/api/v1/cameras/${id}/preview`)
   },
 
+  // 停止摄像头拉流
+  stopStream(id: number) {
+    return request.post<ApiResponse<{
+      code: number
+      message: string
+      camera_id: number
+      camera_code: string
+      camera_name: string
+    }>>(`/api/v1/cameras/${id}/stop_stream`)
+  }
 
 }
 

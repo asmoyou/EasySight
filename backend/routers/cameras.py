@@ -985,3 +985,75 @@ async def get_camera_preview(
         "preview_url": preview_url,
         "media_proxy_name": camera.media_proxy_name
     }
+
+@router.post("/{camera_id}/stop_stream")
+async def stop_camera_stream(
+    camera_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """停止摄像头拉流"""
+    import httpx
+    from config import settings
+    
+    # 查询摄像头
+    result = await db.execute(select(Camera).where(Camera.id == camera_id))
+    camera = result.scalar_one_or_none()
+    
+    if not camera:
+        raise HTTPException(status_code=404, detail="摄像头不存在")
+    
+    if not camera.code:
+        raise HTTPException(status_code=400, detail="摄像头编码不存在")
+    
+    # 如果配置了媒体代理，通过流媒体服务停止拉流
+    if camera.media_proxy_id:
+        # 查询媒体代理信息
+        proxy_result = await db.execute(select(MediaProxy).where(MediaProxy.id == camera.media_proxy_id))
+        media_proxy = proxy_result.scalar_one_or_none()
+        
+        if not media_proxy:
+            raise HTTPException(status_code=400, detail="媒体代理节点不存在")
+        
+        if not media_proxy.is_online:
+            raise HTTPException(status_code=503, detail="媒体代理节点离线")
+        
+        try:
+            # 调用流媒体服务的 delete_stream 接口
+            media_service_url = f"http://{media_proxy.ip_address}:{media_proxy.port}/delete_stream"
+            
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    media_service_url,
+                    json={"camera_id": camera.code}
+                )
+                
+                if response.status_code == 200:
+                    result_data = response.json()
+                    if result_data.get("code") == 0:
+                        return {
+                            "code": 0,
+                            "message": "停止拉流成功",
+                            "camera_id": camera.id,
+                            "camera_code": camera.code,
+                            "camera_name": camera.name
+                        }
+                    else:
+                        raise HTTPException(
+                            status_code=400, 
+                            detail=f"停止拉流失败: {result_data.get('msg', '未知错误')}"
+                        )
+                else:
+                    raise HTTPException(
+                        status_code=500, 
+                        detail=f"流媒体服务响应错误: {response.status_code}"
+                    )
+                    
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="流媒体服务请求超时")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=503, detail=f"无法连接到流媒体服务: {str(e)}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"停止拉流失败: {str(e)}")
+    else:
+        raise HTTPException(status_code=400, detail="摄像头未配置媒体代理节点")

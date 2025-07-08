@@ -105,6 +105,10 @@
             <el-icon><VideoPlay /></el-icon>
             预览
           </el-button>
+          <el-button size="small" type="warning" @click="handleStopStream(row)" :disabled="row.status !== 'online'">
+            <el-icon><VideoPause /></el-icon>
+            停止拉流
+          </el-button>
 
           <el-dropdown @command="(command) => handleGroupAction(command, row)">
             <el-button size="small" type="success">
@@ -443,7 +447,7 @@
       >
         <div
           v-for="(slot, index) in gridSlots"
-          :key="index"
+          :key="index" 
           class="preview-slot"
           :class="{ 
             'has-video': slot.camera,
@@ -506,7 +510,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Refresh, Plus, View, Edit, Delete, ArrowDown, VideoPlay, VideoCamera, Monitor, Close, Rank } from '@element-plus/icons-vue'
+import { Search, Refresh, Plus, View, Edit, Delete, ArrowDown, VideoPlay, VideoPause, VideoCamera, Monitor, Close, Rank } from '@element-plus/icons-vue'
 import { cameraApi, mediaProxyApi } from '@/api/cameras'
 import { getGroups, updateGroup } from '@/api/groups'
 import VideoPreview from '@/components/videoPreview.vue'
@@ -768,6 +772,34 @@ const handleDelete = async (row: Camera) => {
     if (error !== 'cancel') {
       console.error('删除摄像头失败:', error)
       ElMessage.error('删除失败')
+    }
+  }
+}
+
+// 停止拉流
+const handleStopStream = async (row: Camera) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要停止摄像头 "${row.name}" 的拉流吗？`,
+      '确认停止拉流',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    const response = await cameraApi.stopStream(row.id)
+    if (response.status === 200) {
+      ElMessage.success('停止拉流成功')
+      await loadCameras()
+    } else {
+      ElMessage.error('停止拉流失败')
+    }
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      console.error('停止拉流失败:', error)
+      ElMessage.error(error.response?.data?.detail || '停止拉流失败')
     }
   }
 }

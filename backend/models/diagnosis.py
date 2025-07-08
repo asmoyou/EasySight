@@ -39,28 +39,24 @@ class DiagnosisTask(Base):
     name = Column(String(100), nullable=False, comment="任务名称")
     description = Column(Text, comment="任务描述")
     
-    # 目标设备
+    # 诊断配置 - 匹配实际数据库结构
     camera_ids = Column(JSON, default=list, comment="摄像头ID列表")
-    camera_groups = Column(JSON, default=list, comment="摄像头分组列表")
-    
-    # 诊断配置
+    camera_groups = Column(JSON, default=list, comment="摄像头组列表")
     diagnosis_types = Column(JSON, default=list, comment="诊断类型列表")
     diagnosis_config = Column(JSON, default=dict, comment="诊断配置参数")
     
-    # 调度配置
-    schedule_type = Column(String(20), default="manual", comment="调度类型(manual, cron, interval)")
+    # 调度配置 - 匹配实际数据库结构
+    schedule_type = Column(String(50), comment="调度类型")
     schedule_config = Column(JSON, default=dict, comment="调度配置")
     cron_expression = Column(String(100), comment="Cron表达式")
     interval_minutes = Column(Integer, comment="间隔分钟数")
-    
-    # 阈值配置
     threshold_config = Column(JSON, default=dict, comment="阈值配置")
     
     # 状态信息
     status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, comment="任务状态")
     is_active = Column(Boolean, default=True, comment="是否启用")
     
-    # 执行信息
+    # 执行信息 - 匹配实际数据库结构
     last_run_time = Column(DateTime(timezone=True), comment="最后执行时间")
     next_run_time = Column(DateTime(timezone=True), comment="下次执行时间")
     total_runs = Column(Integer, default=0, comment="总执行次数")
@@ -68,7 +64,7 @@ class DiagnosisTask(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
-    created_by = Column(String(100), comment="创建人")
+    created_by = Column(String(50), comment="创建人ID")
     
     def __repr__(self):
         return f"<DiagnosisTask(id={self.id}, name='{self.name}', status='{self.status}')>"
@@ -78,33 +74,29 @@ class DiagnosisResult(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     task_id = Column(Integer, nullable=False, comment="诊断任务ID")
-    camera_id = Column(Integer, nullable=False, comment="摄像头ID")
+    camera_id = Column(Integer, comment="摄像头ID")
     camera_name = Column(String(100), comment="摄像头名称")
+    diagnosis_type = Column(String(50), comment="诊断类型")
     
-    # 诊断信息
-    diagnosis_type = Column(Enum(DiagnosisType), nullable=False, comment="诊断类型")
+    # 诊断状态 - 匹配数据库字段名
     diagnosis_status = Column(Enum(DiagnosisStatus), nullable=False, comment="诊断状态")
-    
-    # 检测结果
     score = Column(Float, comment="诊断分数")
     threshold = Column(Float, comment="阈值")
     is_abnormal = Column(Boolean, default=False, comment="是否异常")
     
-    # 详细结果
-    result_data = Column(JSON, default=dict, comment="详细结果数据")
-    metrics = Column(JSON, default=dict, comment="指标数据")
-    
     # 图像信息
-    image_url = Column(String(500), comment="检测图像URL")
+    image_url = Column(String(500), comment="图像URL")
     thumbnail_url = Column(String(500), comment="缩略图URL")
     image_timestamp = Column(DateTime(timezone=True), comment="图像时间戳")
     
     # 处理信息
     processing_time = Column(Float, comment="处理时间(ms)")
     error_message = Column(Text, comment="错误信息")
+    suggestions = Column(JSON, default=list, comment="建议")
+    metrics = Column(JSON, default=dict, comment="指标数据")
     
-    # 建议信息
-    suggestions = Column(JSON, default=list, comment="改进建议")
+    # 检测结果
+    result_data = Column(JSON, default=dict, comment="详细结果数据")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     
@@ -116,40 +108,24 @@ class DiagnosisAlarm(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     result_id = Column(Integer, nullable=False, comment="诊断结果ID")
-    task_id = Column(Integer, nullable=False, comment="诊断任务ID")
-    camera_id = Column(Integer, nullable=False, comment="摄像头ID")
     
     # 告警信息
-    alarm_type = Column(Enum(DiagnosisType), nullable=False, comment="告警类型")
-    alarm_level = Column(String(20), default="warning", comment="告警级别")
+    alarm_type = Column(String(50), nullable=False, comment="告警类型")
+    severity = Column(String(20), default="warning", comment="严重程度")
     title = Column(String(200), nullable=False, comment="告警标题")
     description = Column(Text, comment="告警描述")
     
-    # 设备信息
-    camera_name = Column(String(100), comment="摄像头名称")
-    camera_location = Column(String(200), comment="摄像头位置")
-    
-    # 检测数据
-    detection_score = Column(Float, comment="检测分数")
+    # 阈值配置
+    threshold_config = Column(JSON, default=dict, comment="阈值配置")
+    current_value = Column(Float, comment="当前值")
     threshold_value = Column(Float, comment="阈值")
     
-    # 媒体文件
-    thumbnail_url = Column(String(500), comment="缩略图URL")
-    image_urls = Column(JSON, default=list, comment="相关图片URL列表")
-    
-    # 状态信息
-    is_read = Column(Boolean, default=False, comment="是否已读")
-    is_resolved = Column(Boolean, default=False, comment="是否已解决")
-    resolved_by = Column(String(100), comment="解决人")
-    resolved_at = Column(DateTime(timezone=True), comment="解决时间")
-    resolution_notes = Column(Text, comment="解决备注")
-    
-    # 通知状态
-    is_notified = Column(Boolean, default=False, comment="是否已通知")
-    notification_sent_at = Column(DateTime(timezone=True), comment="通知发送时间")
+    # 确认状态
+    is_acknowledged = Column(Boolean, default=False, comment="是否已确认")
+    acknowledged_by = Column(Integer, comment="确认人ID")
+    acknowledged_at = Column(DateTime(timezone=True), comment="确认时间")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
 
 class DiagnosisTemplate(Base):
     __tablename__ = "diagnosis_templates"
@@ -158,15 +134,13 @@ class DiagnosisTemplate(Base):
     name = Column(String(100), nullable=False, comment="模板名称")
     description = Column(Text, comment="模板描述")
     
-    # 模板配置
+    # 模板配置 - 匹配实际数据库结构
     diagnosis_types = Column(JSON, default=list, comment="诊断类型列表")
     default_config = Column(JSON, default=dict, comment="默认配置")
+    default_schedule = Column(JSON, default=dict, comment="默认调度配置")
     threshold_config = Column(JSON, default=dict, comment="阈值配置")
     
-    # 调度配置
-    default_schedule = Column(JSON, default=dict, comment="默认调度配置")
-    
-    # 状态
+    # 状态 - 匹配实际数据库结构
     is_active = Column(Boolean, default=True, comment="是否启用")
     is_system = Column(Boolean, default=False, comment="是否系统模板")
     
@@ -175,7 +149,7 @@ class DiagnosisTemplate(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
-    created_by = Column(String(100), comment="创建人")
+    created_by = Column(String(50), comment="创建人ID")
 
 class DiagnosisStatistics(Base):
     __tablename__ = "diagnosis_statistics"

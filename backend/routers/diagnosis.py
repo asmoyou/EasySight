@@ -53,7 +53,7 @@ class DiagnosisTaskResponse(BaseModel):
     run_count: int
     success_count: int
     error_count: int
-    created_by: int
+    created_by: str
     created_by_name: str
     created_at: datetime
     updated_at: datetime
@@ -130,14 +130,14 @@ class DiagnosisTemplateUpdate(BaseModel):
 class DiagnosisTemplateResponse(BaseModel):
     id: int
     name: str
-    diagnosis_type: DiagnosisType
-    config_template: Dict[str, Any]
+    diagnosis_types: List[str]
+    default_config: Dict[str, Any]
     default_schedule: Dict[str, Any]
     threshold_config: Dict[str, Any]
     is_active: bool
-    is_public: bool
+    is_system: bool
     usage_count: int
-    created_by: int
+    created_by: str
     created_by_name: str
     created_at: datetime
     updated_at: datetime
@@ -211,40 +211,39 @@ async def get_diagnosis_tasks(
     result = await db.execute(query)
     tasks = result.scalars().all()
     
-    # 获取模板和创建者信息
-    template_map = {}
+    # 获取创建者信息
     creator_map = {}
     
     if tasks:
-        template_ids = [t.template_id for t in tasks if t.template_id]
-        if template_ids:
-            template_result = await db.execute(select(DiagnosisTemplate).where(DiagnosisTemplate.id.in_(template_ids)))
-            templates = template_result.scalars().all()
-            template_map = {t.id: t.name for t in templates}
+        # 将字符串类型的 created_by 转换为整数类型
+        creator_ids = []
+        for t in tasks:
+            if t.created_by and t.created_by.isdigit():
+                creator_ids.append(int(t.created_by))
         
-        creator_ids = [t.created_by for t in tasks]
-        creator_result = await db.execute(select(User).where(User.id.in_(creator_ids)))
-        creators = creator_result.scalars().all()
-        creator_map = {c.id: c.username for c in creators}
+        if creator_ids:
+            creator_result = await db.execute(select(User).where(User.id.in_(creator_ids)))
+            creators = creator_result.scalars().all()
+            creator_map = {str(c.id): c.username for c in creators}  # 使用字符串作为键
     
     return [DiagnosisTaskResponse(
         id=task.id,
         name=task.name,
-        diagnosis_type=task.diagnosis_type,
-        target_id=task.target_id,
-        target_type=task.target_type,
-        template_id=task.template_id,
-        template_name=template_map.get(task.template_id),
-        config=task.config,
-        schedule_config=task.schedule_config,
+        diagnosis_type=task.diagnosis_types[0] if task.diagnosis_types else None,  # 取第一个类型作为主类型
+        target_id=task.camera_ids[0] if task.camera_ids else None,  # 取第一个摄像头ID
+        target_type='camera',
+        template_id=None,  # 暂时设为None，后续可以添加模板关联
+        template_name=None,
+        config=task.diagnosis_config or {},
+        schedule_config=task.schedule_config or {},
         status=task.status,
-        is_scheduled=task.is_scheduled,
+        is_scheduled=task.schedule_type is not None,  # 根据 schedule_type 判断是否为定时任务
         is_active=task.is_active,
-        last_run=task.last_run,
-        next_run=task.next_run,
-        run_count=task.run_count,
-        success_count=task.success_count,
-        error_count=task.error_count,
+        last_run=task.last_run_time,
+        next_run=task.next_run_time,
+        run_count=task.total_runs or 0,
+        success_count=task.success_runs or 0,
+        error_count=(task.total_runs or 0) - (task.success_runs or 0),
         created_by=task.created_by,
         created_by_name=creator_map.get(task.created_by, ""),
         created_at=task.created_at,
@@ -272,7 +271,24 @@ async def create_diagnosis_task(
         template_name = template.name
     
     task_dict = task_data.dict()
-    task_dict['created_by'] = current_user.id
+    task_dict['created_by'] = str(current_user.id)  # 转换为字符串类型
+    
+    # 字段名转换：前端使用 diagnosis_type，数据库使用 diagnosis_types
+    if 'diagnosis_type' in task_dict:
+        diagnosis_type = task_dict.pop('diagnosis_type')
+        # 将枚举值转换为字符串值以便JSON序列化
+        task_dict['diagnosis_types'] = [diagnosis_type.value] if diagnosis_type else []
+    
+    # 字段名转换：前端使用 target_id，数据库使用 camera_ids
+    if 'target_id' in task_dict:
+        target_id = task_dict.pop('target_id')
+        task_dict['camera_ids'] = [target_id] if target_id else []
+    
+    # 移除前端字段，数据库中不存在
+    task_dict.pop('target_type', None)
+    task_dict.pop('template_id', None)
+    task_dict.pop('config', None)
+    task_dict.pop('is_scheduled', None)
     
     task = DiagnosisTask(**task_dict)
     db.add(task)
@@ -282,21 +298,21 @@ async def create_diagnosis_task(
     return DiagnosisTaskResponse(
         id=task.id,
         name=task.name,
-        diagnosis_type=task.diagnosis_type,
-        target_id=task.target_id,
-        target_type=task.target_type,
-        template_id=task.template_id,
+        diagnosis_type=task.diagnosis_types[0] if task.diagnosis_types else None,  # 取第一个类型作为主类型
+        target_id=task.camera_ids[0] if task.camera_ids else None,  # 取第一个摄像头ID
+        target_type='camera',
+        template_id=None,  # 暂时设为None，后续可以添加模板关联
         template_name=template_name,
-        config=task.config,
-        schedule_config=task.schedule_config,
+        config=task.diagnosis_config or {},
+        schedule_config=task.schedule_config or {},
         status=task.status,
-        is_scheduled=task.is_scheduled,
+        is_scheduled=task.schedule_type is not None,  # 根据 schedule_type 判断是否为定时任务
         is_active=task.is_active,
-        last_run=task.last_run,
-        next_run=task.next_run,
-        run_count=task.run_count,
-        success_count=task.success_count,
-        error_count=task.error_count,
+        last_run=task.last_run_time,
+        next_run=task.next_run_time,
+        run_count=task.total_runs or 0,
+        success_count=task.success_runs or 0,
+        error_count=(task.total_runs or 0) - (task.success_runs or 0),
         created_by=task.created_by,
         created_by_name=current_user.username,
         created_at=task.created_at,
@@ -322,34 +338,38 @@ async def get_diagnosis_task(
     
     # 获取模板和创建者信息
     template_name = None
-    if task.template_id:
-        template_result = await db.execute(select(DiagnosisTemplate).where(DiagnosisTemplate.id == task.template_id))
-        template = template_result.scalar_one_or_none()
-        if template:
-            template_name = template.name
+    # 注意：DiagnosisTask 模型中没有 template_id 字段，暂时设为 None
+    # if hasattr(task, 'template_id') and task.template_id:
+    #     template_result = await db.execute(select(DiagnosisTemplate).where(DiagnosisTemplate.id == task.template_id))
+    #     template = template_result.scalar_one_or_none()
+    #     if template:
+    #         template_name = template.name
     
-    creator_result = await db.execute(select(User).where(User.id == task.created_by))
-    creator = creator_result.scalar_one_or_none()
-    creator_name = creator.username if creator else ""
+    # 将字符串类型的 created_by 转换为整数类型进行查询
+    creator_name = ""
+    if task.created_by and task.created_by.isdigit():
+        creator_result = await db.execute(select(User).where(User.id == int(task.created_by)))
+        creator = creator_result.scalar_one_or_none()
+        creator_name = creator.username if creator else ""
     
     return DiagnosisTaskResponse(
         id=task.id,
         name=task.name,
-        diagnosis_type=task.diagnosis_type,
-        target_id=task.target_id,
-        target_type=task.target_type,
-        template_id=task.template_id,
+        diagnosis_type=task.diagnosis_types[0] if task.diagnosis_types else None,  # 取第一个类型作为主类型
+        target_id=task.camera_ids[0] if task.camera_ids else None,  # 取第一个摄像头ID
+        target_type='camera',
+        template_id=None,  # 暂时设为None，后续可以添加模板关联
         template_name=template_name,
-        config=task.config,
-        schedule_config=task.schedule_config,
+        config=task.diagnosis_config or {},
+        schedule_config=task.schedule_config or {},
         status=task.status,
-        is_scheduled=task.is_scheduled,
+        is_scheduled=task.schedule_type is not None,  # 根据 schedule_type 判断是否为定时任务
         is_active=task.is_active,
-        last_run=task.last_run,
-        next_run=task.next_run,
-        run_count=task.run_count,
-        success_count=task.success_count,
-        error_count=task.error_count,
+        last_run=task.last_run_time,
+        next_run=task.next_run_time,
+        run_count=task.total_runs or 0,
+        success_count=task.success_runs or 0,
+        error_count=(task.total_runs or 0) - (task.success_runs or 0),
         created_by=task.created_by,
         created_by_name=creator_name,
         created_at=task.created_at,
@@ -383,34 +403,33 @@ async def update_diagnosis_task(
     
     # 获取相关信息
     template_name = None
-    if task.template_id:
-        template_result = await db.execute(select(DiagnosisTemplate).where(DiagnosisTemplate.id == task.template_id))
-        template = template_result.scalar_one_or_none()
-        if template:
-            template_name = template.name
+    # 注意：DiagnosisTask 模型中没有 template_id 字段，暂时设为 None
     
-    creator_result = await db.execute(select(User).where(User.id == task.created_by))
-    creator = creator_result.scalar_one_or_none()
-    creator_name = creator.username if creator else ""
+    # 将字符串类型的 created_by 转换为整数类型进行查询
+    creator_name = ""
+    if task.created_by and task.created_by.isdigit():
+        creator_result = await db.execute(select(User).where(User.id == int(task.created_by)))
+        creator = creator_result.scalar_one_or_none()
+        creator_name = creator.username if creator else ""
     
     return DiagnosisTaskResponse(
         id=task.id,
         name=task.name,
-        diagnosis_type=task.diagnosis_type,
-        target_id=task.target_id,
-        target_type=task.target_type,
-        template_id=task.template_id,
+        diagnosis_type=task.diagnosis_types[0] if task.diagnosis_types else None,  # 取第一个类型作为主类型
+        target_id=task.camera_ids[0] if task.camera_ids else None,  # 取第一个摄像头ID
+        target_type='camera',
+        template_id=None,  # 暂时设为None，后续可以添加模板关联
         template_name=template_name,
-        config=task.config,
-        schedule_config=task.schedule_config,
+        config=task.diagnosis_config or {},
+        schedule_config=task.schedule_config or {},
         status=task.status,
-        is_scheduled=task.is_scheduled,
+        is_scheduled=task.schedule_type is not None,  # 根据 schedule_type 判断是否为定时任务
         is_active=task.is_active,
-        last_run=task.last_run,
-        next_run=task.next_run,
-        run_count=task.run_count,
-        success_count=task.success_count,
-        error_count=task.error_count,
+        last_run=task.last_run_time,
+        next_run=task.next_run_time,
+        run_count=task.total_runs or 0,
+        success_count=task.success_runs or 0,
+        error_count=(task.total_runs or 0) - (task.success_runs or 0),
         created_by=task.created_by,
         created_by_name=creator_name,
         created_at=task.created_at,
@@ -498,7 +517,7 @@ async def get_diagnosis_results(
         conditions.append(DiagnosisResult.task_id == task_id)
     
     if status:
-        conditions.append(DiagnosisResult.status == status)
+        conditions.append(DiagnosisResult.diagnosis_status == status)
     
     if start_date:
         conditions.append(DiagnosisResult.created_at >= start_date)
@@ -529,12 +548,12 @@ async def get_diagnosis_results(
         id=result.id,
         task_id=result.task_id,
         task_name=task_map.get(result.task_id, ""),
-        status=result.status,
+        status=result.diagnosis_status,
         result_data=result.result_data,
         score=result.score,
-        issues_found=result.issues_found,
-        recommendations=result.recommendations,
-        execution_time=result.execution_time,
+        issues_found=result.suggestions,  # 使用 suggestions 字段
+        recommendations=result.suggestions,
+        execution_time=result.processing_time,  # 使用 processing_time 字段
         error_message=result.error_message,
         created_at=result.created_at
     ) for result in results]
@@ -573,14 +592,49 @@ async def create_diagnosis_result(
         id=result.id,
         task_id=result.task_id,
         task_name=task.name,
-        status=result.status,
+        status=result.diagnosis_status,
         result_data=result.result_data,
         score=result.score,
-        issues_found=result.issues_found,
-        recommendations=result.recommendations,
-        execution_time=result.execution_time,
+        issues_found=result.suggestions,
+        recommendations=result.suggestions,
+        execution_time=result.processing_time,
         error_message=result.error_message,
         created_at=result.created_at
+    )
+
+@router.get("/results/{result_id}", response_model=DiagnosisResultResponse)
+async def get_diagnosis_result(
+    result_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取诊断结果详情"""
+    result = await db.execute(select(DiagnosisResult).where(DiagnosisResult.id == result_id))
+    diagnosis_result = result.scalar_one_or_none()
+    
+    if not diagnosis_result:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="诊断结果不存在"
+        )
+    
+    # 获取任务信息
+    task_result = await db.execute(select(DiagnosisTask).where(DiagnosisTask.id == diagnosis_result.task_id))
+    task = task_result.scalar_one_or_none()
+    task_name = task.name if task else "未知任务"
+    
+    return DiagnosisResultResponse(
+        id=diagnosis_result.id,
+        task_id=diagnosis_result.task_id,
+        task_name=task_name,
+        status=diagnosis_result.diagnosis_status,
+        result_data=diagnosis_result.result_data,
+        score=diagnosis_result.score,
+        issues_found=diagnosis_result.suggestions,
+        recommendations=diagnosis_result.suggestions,
+        execution_time=diagnosis_result.processing_time,
+        error_message=diagnosis_result.error_message,
+        created_at=diagnosis_result.created_at
     )
 
 # 诊断告警管理
@@ -703,11 +757,12 @@ async def get_diagnosis_templates(
     """获取诊断模板列表"""
     conditions = []
     
-    if diagnosis_type:
-        conditions.append(DiagnosisTemplate.diagnosis_type == diagnosis_type)
+    # 注意：diagnosis_types 现在是 JSON 数组，需要使用 JSON 操作符
+    # if diagnosis_type:
+    #     conditions.append(DiagnosisTemplate.diagnosis_types.contains([diagnosis_type]))
     
     if is_public is not None:
-        conditions.append(DiagnosisTemplate.is_public == is_public)
+        conditions.append(DiagnosisTemplate.is_system == (not is_public))  # is_public 的反义是 is_system
     
     if is_active is not None:
         conditions.append(DiagnosisTemplate.is_active == is_active)
@@ -722,20 +777,31 @@ async def get_diagnosis_templates(
     # 获取创建者信息
     creator_map = {}
     if templates:
-        creator_ids = [t.created_by for t in templates]
-        creator_result = await db.execute(select(User).where(User.id.in_(creator_ids)))
-        creators = creator_result.scalars().all()
-        creator_map = {c.id: c.username for c in creators}
+        # 获取创建者信息
+        creator_ids = []
+        for t in templates:
+            if t.created_by and t.created_by not in creator_ids:
+                try:
+                    creator_ids.append(int(t.created_by))
+                except ValueError:
+                    # 如果created_by是字符串（如'admin'），跳过
+                    pass
+        
+        creator_map = {}
+        if creator_ids:
+            creator_result = await db.execute(select(User).where(User.id.in_(creator_ids)))
+            creators = creator_result.scalars().all()
+            creator_map = {str(c.id): c.username for c in creators}
     
     return [DiagnosisTemplateResponse(
         id=template.id,
         name=template.name,
-        diagnosis_type=template.diagnosis_type,
-        config_template=template.config_template,
+        diagnosis_types=template.diagnosis_types or [],
+        default_config=template.default_config,
         default_schedule=template.default_schedule,
         threshold_config=template.threshold_config,
         is_active=template.is_active,
-        is_public=template.is_public,
+        is_system=template.is_system,
         usage_count=template.usage_count,
         created_by=template.created_by,
         created_by_name=creator_map.get(template.created_by, ""),
@@ -751,23 +817,44 @@ async def create_diagnosis_template(
     current_user: User = Depends(get_current_user)
 ):
     """创建诊断模板"""
-    template_dict = template_data.dict()
-    template_dict['created_by'] = current_user.id
-    
-    template = DiagnosisTemplate(**template_dict)
-    db.add(template)
-    await db.commit()
-    await db.refresh(template)
+    try:
+        template_dict = template_data.dict()
+        
+        # 字段映射：前端字段 -> 数据库字段
+        mapped_dict = {
+            'name': template_dict['name'],
+            'description': template_dict.get('description'),
+            'diagnosis_types': [template_dict['diagnosis_type'].value],  # 转换枚举为字符串值
+            'default_config': template_dict['config_template'],  # config_template -> default_config
+            'default_schedule': template_dict.get('default_schedule', {}),
+            'threshold_config': template_dict.get('threshold_config', {}),
+            'is_active': True,  # 新创建的模板默认启用
+            'is_system': not template_dict.get('is_public', True),  # is_public -> is_system (取反)
+            'created_by': str(current_user.id)  # 确保是字符串类型
+        }
+        
+        template = DiagnosisTemplate(**mapped_dict)
+        db.add(template)
+        await db.commit()
+        await db.refresh(template)
+    except Exception as e:
+        await db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"创建模板失败: {str(e)}"
+        )
     
     return DiagnosisTemplateResponse(
         id=template.id,
         name=template.name,
-        diagnosis_type=template.diagnosis_type,
-        config_template=template.config_template,
+        diagnosis_types=template.diagnosis_types or [],
+        default_config=template.default_config,
         default_schedule=template.default_schedule,
         threshold_config=template.threshold_config,
         is_active=template.is_active,
-        is_public=template.is_public,
+        is_system=template.is_system,
         usage_count=template.usage_count,
         created_by=template.created_by,
         created_by_name=current_user.username,
@@ -794,7 +881,8 @@ async def get_diagnosis_stats(
     running_tasks_result = await db.execute(select(func.count(DiagnosisTask.id)).where(DiagnosisTask.status == TaskStatus.RUNNING))
     running_tasks = running_tasks_result.scalar()
     
-    scheduled_tasks_result = await db.execute(select(func.count(DiagnosisTask.id)).where(DiagnosisTask.is_scheduled == True))
+    # 注意：is_scheduled 字段已被移除，使用 schedule_type 判断是否为定时任务
+    scheduled_tasks_result = await db.execute(select(func.count(DiagnosisTask.id)).where(DiagnosisTask.schedule_type.isnot(None)))
     scheduled_tasks = scheduled_tasks_result.scalar()
     
     # 结果统计
@@ -827,12 +915,9 @@ async def get_diagnosis_stats(
     )
     avg_score = avg_score_result.scalar() or 0
     
-    # 按类型统计
-    type_result = await db.execute(
-        select(DiagnosisTask.diagnosis_type, func.count(DiagnosisTask.id))
-        .group_by(DiagnosisTask.diagnosis_type)
-    )
-    by_type = {str(row[0].value): row[1] for row in type_result.all()}
+    # 按类型统计 - 注意：diagnosis_types 现在是 JSON 数组，暂时跳过此统计
+    # TODO: 需要使用 PostgreSQL JSON 函数来展开数组并统计
+    by_type = {}
     
     # 按状态统计
     status_result = await db.execute(

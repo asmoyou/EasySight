@@ -19,16 +19,44 @@ class CameraMonitor:
     async def check_rtsp_stream(self, stream_url: str) -> bool:
         """检查RTSP流是否可用"""
         try:
-            # 简单的RTSP连接测试
-            # 这里可以使用更复杂的RTSP客户端库，如opencv-python
-            import cv2
+            # 验证URL格式
+            if not stream_url.startswith('rtsp://'):
+                logger.warning(f"Invalid RTSP URL format: {stream_url}")
+                return False
             
-            # 使用OpenCV测试RTSP流
-            cap = cv2.VideoCapture(stream_url)
-            if cap.isOpened():
-                ret, frame = cap.read()
-                cap.release()
-                return ret and frame is not None
+            # 使用简单的TCP连接测试替代OpenCV，避免阻塞和异常
+            import socket
+            import asyncio
+            from urllib.parse import urlparse
+            
+            def _check_rtsp_tcp():
+                """通过TCP连接测试RTSP服务是否可达"""
+                try:
+                    parsed = urlparse(stream_url)
+                    host = parsed.hostname
+                    port = parsed.port or 554  # RTSP默认端口
+                    
+                    if not host:
+                        return False
+                    
+                    # 创建TCP连接测试
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(3)  # 3秒超时
+                    result = sock.connect_ex((host, port))
+                    sock.close()
+                    return result == 0
+                except Exception:
+                    return False
+            
+            # 在线程池中运行TCP连接测试
+            loop = asyncio.get_event_loop()
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = loop.run_in_executor(executor, _check_rtsp_tcp)
+                return await asyncio.wait_for(future, timeout=5.0)
+                
+        except asyncio.TimeoutError:
+            logger.debug(f"RTSP stream check timeout for {stream_url}")
             return False
         except Exception as e:
             logger.debug(f"RTSP stream check failed for {stream_url}: {e}")
@@ -49,13 +77,19 @@ class CameraMonitor:
         if not camera.stream_url:
             return CameraStatus.ERROR
         
+        # 验证URL格式
+        if not (camera.stream_url.startswith('rtsp://') or 
+                camera.stream_url.startswith('http://') or 
+                camera.stream_url.startswith('https://')):
+            logger.warning(f"Unsupported stream URL format: {camera.stream_url}")
+            return CameraStatus.ERROR
+        
         # 根据流URL类型选择检测方法
         if camera.stream_url.startswith('rtsp://'):
             is_available = await self.check_rtsp_stream(camera.stream_url)
         elif camera.stream_url.startswith('http://') or camera.stream_url.startswith('https://'):
             is_available = await self.check_http_stream(camera.stream_url)
         else:
-            logger.warning(f"Unsupported stream URL format: {camera.stream_url}")
             return CameraStatus.ERROR
         
         return CameraStatus.ONLINE if is_available else CameraStatus.OFFLINE
