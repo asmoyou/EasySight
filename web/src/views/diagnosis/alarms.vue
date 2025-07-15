@@ -199,10 +199,10 @@
           <template #default="{ row }">
             <div v-if="row.detection_data" class="detection-data">
               <div v-if="row.detection_data.score !== undefined">
-                分数: {{ (row.detection_data.score * 100).toFixed(1) }}%
+                分数: {{ row.detection_data.score.toFixed(2) }}
               </div>
               <div v-if="row.detection_data.threshold !== undefined">
-                阈值: {{ (row.detection_data.threshold * 100).toFixed(1) }}%
+                阈值: {{ row.detection_data.threshold.toFixed(2) }}
               </div>
             </div>
             <span v-else class="text-muted">无数据</span>
@@ -315,6 +315,8 @@
             :preview-src-list="[currentAlarm.thumbnail_url]"
             fit="contain"
             style="max-width: 100%; max-height: 400px"
+            :z-index="9999"
+            preview-teleported
           />
         </div>
         

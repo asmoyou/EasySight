@@ -15,44 +15,74 @@ router = APIRouter()
 # Pydantic models
 class EventCreate(BaseModel):
     event_type: EventType
-    level: EventLevel
+    event_level: EventLevel
     title: str
     description: Optional[str] = None
-    source_id: Optional[int] = None
-    source_type: Optional[str] = None
-    location: Optional[str] = None
-    data: Dict[str, Any] = {}
-    image_url: Optional[str] = None
-    video_url: Optional[str] = None
+    camera_id: int
+    camera_name: Optional[str] = None
+    camera_location: Optional[str] = None
+    algorithm_id: Optional[int] = None
+    algorithm_name: Optional[str] = None
+    confidence_score: Optional[float] = None
+    longitude: Optional[float] = None
+    latitude: Optional[float] = None
+    location_description: Optional[str] = None
+    detection_area: Optional[Dict[str, Any]] = None
+    roi_name: Optional[str] = None
+    image_urls: List[str] = []
+    video_urls: List[str] = []
+    thumbnail_url: Optional[str] = None
+    detected_objects: List[Dict[str, Any]] = []
+    object_count: int = 0
+    event_time: datetime
+    event_metadata: Dict[str, Any] = {}
     tags: List[str] = []
 
 class EventUpdate(BaseModel):
     status: Optional[EventStatus] = None
-    handled_by: Optional[int] = None
-    handled_at: Optional[datetime] = None
-    handle_note: Optional[str] = None
+    is_read: Optional[bool] = None
+    is_important: Optional[bool] = None
+    assigned_to: Optional[str] = None
+    processed_by: Optional[str] = None
+    processed_at: Optional[datetime] = None
+    resolution_notes: Optional[str] = None
     tags: Optional[List[str]] = None
 
 class EventResponse(BaseModel):
     id: int
+    event_id: str
     event_type: EventType
-    level: EventLevel
+    event_level: EventLevel
     status: EventStatus
     title: str
     description: Optional[str]
-    source_id: Optional[int]
-    source_type: Optional[str]
-    location: Optional[str]
-    data: Dict[str, Any]
-    image_url: Optional[str]
-    video_url: Optional[str]
-    tags: List[str]
-    handled_by: Optional[int]
-    handled_by_name: Optional[str]
-    handled_at: Optional[datetime]
-    handle_note: Optional[str]
+    camera_id: int
+    camera_name: Optional[str]
+    camera_location: Optional[str]
+    algorithm_id: Optional[int]
+    algorithm_name: Optional[str]
+    confidence_score: Optional[float]
+    longitude: Optional[float]
+    latitude: Optional[float]
+    location_description: Optional[str]
+    detection_area: Optional[Dict[str, Any]]
+    roi_name: Optional[str]
+    image_urls: List[str]
+    video_urls: List[str]
+    thumbnail_url: Optional[str]
+    detected_objects: List[Dict[str, Any]]
+    object_count: int
+    is_read: bool
+    is_important: bool
+    assigned_to: Optional[str]
+    processed_by: Optional[str]
+    processed_at: Optional[datetime]
+    resolution_notes: Optional[str]
+    event_time: datetime
     created_at: datetime
     updated_at: datetime
+    event_metadata: Dict[str, Any]
+    tags: List[str]
 
 class EventListResponse(BaseModel):
     events: List[EventResponse]
@@ -140,10 +170,12 @@ async def get_events(
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     search: Optional[str] = Query(None, description="搜索关键词"),
     event_type: Optional[EventType] = Query(None, description="事件类型筛选"),
-    level: Optional[EventLevel] = Query(None, description="事件级别筛选"),
+    event_level: Optional[EventLevel] = Query(None, description="事件级别筛选"),
     status: Optional[EventStatus] = Query(None, description="事件状态筛选"),
-    source_type: Optional[str] = Query(None, description="来源类型筛选"),
-    location: Optional[str] = Query(None, description="位置筛选"),
+    camera_id: Optional[int] = Query(None, description="摄像头ID筛选"),
+    camera_name: Optional[str] = Query(None, description="摄像头名称筛选"),
+    algorithm_name: Optional[str] = Query(None, description="算法名称筛选"),
+    is_read: Optional[bool] = Query(None, description="是否已读筛选"),
     start_date: Optional[date] = Query(None, description="开始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
     db: AsyncSession = Depends(get_db),
@@ -158,24 +190,32 @@ async def get_events(
             or_(
                 Event.title.ilike(search_pattern),
                 Event.description.ilike(search_pattern),
-                Event.location.ilike(search_pattern)
+                Event.camera_name.ilike(search_pattern),
+                Event.camera_location.ilike(search_pattern),
+                Event.algorithm_name.ilike(search_pattern)
             )
         )
     
     if event_type:
         conditions.append(Event.event_type == event_type)
     
-    if level:
-        conditions.append(Event.level == level)
+    if event_level:
+        conditions.append(Event.event_level == event_level)
     
     if status:
         conditions.append(Event.status == status)
     
-    if source_type:
-        conditions.append(Event.source_type == source_type)
+    if camera_id:
+        conditions.append(Event.camera_id == camera_id)
     
-    if location:
-        conditions.append(Event.location.ilike(f"%{location}%"))
+    if camera_name:
+        conditions.append(Event.camera_name.ilike(f"%{camera_name}%"))
+    
+    if algorithm_name:
+        conditions.append(Event.algorithm_name.ilike(f"%{algorithm_name}%"))
+    
+    if is_read is not None:
+        conditions.append(Event.is_read == is_read)
     
     if start_date:
         conditions.append(Event.created_at >= start_date)
@@ -203,39 +243,44 @@ async def get_events(
     result = await db.execute(query)
     events = result.scalars().all()
     
-    # 获取处理人信息
-    handler_map = {}
-    if events:
-        handler_ids = [e.handled_by for e in events if e.handled_by]
-        if handler_ids:
-            from models.user import User
-            handler_result = await db.execute(select(User).where(User.id.in_(handler_ids)))
-            handlers = handler_result.scalars().all()
-            handler_map = {h.id: h.username for h in handlers}
-    
     total_pages = (total + page_size - 1) // page_size
     
     return EventListResponse(
         events=[EventResponse(
             id=event.id,
+            event_id=event.event_id,
             event_type=event.event_type,
-            level=event.level,
+            event_level=event.event_level,
             status=event.status,
             title=event.title,
             description=event.description,
-            source_id=event.source_id,
-            source_type=event.source_type,
-            location=event.location,
-            data=event.data,
-            image_url=event.image_url,
-            video_url=event.video_url,
-            tags=event.tags,
-            handled_by=event.handled_by,
-            handled_by_name=handler_map.get(event.handled_by),
-            handled_at=event.handled_at,
-            handle_note=event.handle_note,
+            camera_id=event.camera_id,
+            camera_name=event.camera_name,
+            camera_location=event.camera_location,
+            algorithm_id=event.algorithm_id,
+            algorithm_name=event.algorithm_name,
+            confidence_score=event.confidence_score,
+            longitude=event.longitude,
+            latitude=event.latitude,
+            location_description=event.location_description,
+            detection_area=event.detection_area,
+            roi_name=event.roi_name,
+            image_urls=event.image_urls or [],
+            video_urls=event.video_urls or [],
+            thumbnail_url=event.thumbnail_url,
+            detected_objects=event.detected_objects or [],
+            object_count=event.object_count,
+            is_read=event.is_read,
+            is_important=event.is_important,
+            assigned_to=event.assigned_to,
+            processed_by=event.processed_by,
+            processed_at=event.processed_at,
+            resolution_notes=event.resolution_notes,
+            event_time=event.event_time,
             created_at=event.created_at,
-            updated_at=event.updated_at
+            updated_at=event.updated_at,
+            event_metadata=event.event_metadata or {},
+            tags=event.tags or []
         ) for event in events],
         total=total,
         page=page,
@@ -250,31 +295,55 @@ async def create_event(
     current_user: User = Depends(get_current_user)
 ):
     """创建事件"""
-    event = Event(**event_data.dict())
+    import uuid
+    from datetime import datetime
+    
+    # 生成唯一事件ID
+    event_id = f"EVT-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
+    
+    event_dict = event_data.dict()
+    event_dict['event_id'] = event_id
+    
+    event = Event(**event_dict)
     db.add(event)
     await db.commit()
     await db.refresh(event)
     
     return EventResponse(
         id=event.id,
+        event_id=event.event_id,
         event_type=event.event_type,
-        level=event.level,
+        event_level=event.event_level,
         status=event.status,
         title=event.title,
         description=event.description,
-        source_id=event.source_id,
-        source_type=event.source_type,
-        location=event.location,
-        data=event.data,
-        image_url=event.image_url,
-        video_url=event.video_url,
-        tags=event.tags,
-        handled_by=event.handled_by,
-        handled_by_name=None,
-        handled_at=event.handled_at,
-        handle_note=event.handle_note,
+        camera_id=event.camera_id,
+        camera_name=event.camera_name,
+        camera_location=event.camera_location,
+        algorithm_id=event.algorithm_id,
+        algorithm_name=event.algorithm_name,
+        confidence_score=event.confidence_score,
+        longitude=event.longitude,
+        latitude=event.latitude,
+        location_description=event.location_description,
+        detection_area=event.detection_area,
+        roi_name=event.roi_name,
+        image_urls=event.image_urls or [],
+        video_urls=event.video_urls or [],
+        thumbnail_url=event.thumbnail_url,
+        detected_objects=event.detected_objects or [],
+        object_count=event.object_count,
+        is_read=event.is_read,
+        is_important=event.is_important,
+        assigned_to=event.assigned_to,
+        processed_by=event.processed_by,
+        processed_at=event.processed_at,
+        resolution_notes=event.resolution_notes,
+        event_time=event.event_time,
         created_at=event.created_at,
-        updated_at=event.updated_at
+        updated_at=event.updated_at,
+        event_metadata=event.event_metadata or {},
+        tags=event.tags or []
     )
 
 @router.get("/{event_id}", response_model=EventResponse)
@@ -293,35 +362,41 @@ async def get_event(
             detail="事件不存在"
         )
     
-    # 获取处理人信息
-    handled_by_name = None
-    if event.handled_by:
-        from models.user import User
-        handler_result = await db.execute(select(User).where(User.id == event.handled_by))
-        handler = handler_result.scalar_one_or_none()
-        if handler:
-            handled_by_name = handler.username
-    
     return EventResponse(
         id=event.id,
+        event_id=event.event_id,
         event_type=event.event_type,
-        level=event.level,
+        event_level=event.event_level,
         status=event.status,
         title=event.title,
         description=event.description,
-        source_id=event.source_id,
-        source_type=event.source_type,
-        location=event.location,
-        data=event.data,
-        image_url=event.image_url,
-        video_url=event.video_url,
-        tags=event.tags,
-        handled_by=event.handled_by,
-        handled_by_name=handled_by_name,
-        handled_at=event.handled_at,
-        handle_note=event.handle_note,
+        camera_id=event.camera_id,
+        camera_name=event.camera_name,
+        camera_location=event.camera_location,
+        algorithm_id=event.algorithm_id,
+        algorithm_name=event.algorithm_name,
+        confidence_score=event.confidence_score,
+        longitude=event.longitude,
+        latitude=event.latitude,
+        location_description=event.location_description,
+        detection_area=event.detection_area,
+        roi_name=event.roi_name,
+        image_urls=event.image_urls or [],
+        video_urls=event.video_urls or [],
+        thumbnail_url=event.thumbnail_url,
+        detected_objects=event.detected_objects or [],
+        object_count=event.object_count,
+        is_read=event.is_read,
+        is_important=event.is_important,
+        assigned_to=event.assigned_to,
+        processed_by=event.processed_by,
+        processed_at=event.processed_at,
+        resolution_notes=event.resolution_notes,
+        event_time=event.event_time,
         created_at=event.created_at,
-        updated_at=event.updated_at
+        updated_at=event.updated_at,
+        event_metadata=event.event_metadata or {},
+        tags=event.tags or []
     )
 
 @router.put("/{event_id}", response_model=EventResponse)
@@ -345,9 +420,9 @@ async def update_event(
     update_data = event_data.dict(exclude_unset=True)
     
     # 如果状态变为已处理，自动设置处理人和处理时间
-    if update_data.get('status') == EventStatus.HANDLED and not event.handled_by:
-        update_data['handled_by'] = current_user.id
-        update_data['handled_at'] = datetime.utcnow()
+    if update_data.get('status') == EventStatus.RESOLVED and not event.processed_by:
+        update_data['processed_by'] = current_user.username
+        update_data['processed_at'] = datetime.utcnow()
     
     for field, value in update_data.items():
         setattr(event, field, value)
@@ -355,35 +430,41 @@ async def update_event(
     await db.commit()
     await db.refresh(event)
     
-    # 获取处理人信息
-    handled_by_name = None
-    if event.handled_by:
-        from models.user import User
-        handler_result = await db.execute(select(User).where(User.id == event.handled_by))
-        handler = handler_result.scalar_one_or_none()
-        if handler:
-            handled_by_name = handler.username
-    
     return EventResponse(
         id=event.id,
+        event_id=event.event_id,
         event_type=event.event_type,
-        level=event.level,
+        event_level=event.event_level,
         status=event.status,
         title=event.title,
         description=event.description,
-        source_id=event.source_id,
-        source_type=event.source_type,
-        location=event.location,
-        data=event.data,
-        image_url=event.image_url,
-        video_url=event.video_url,
-        tags=event.tags,
-        handled_by=event.handled_by,
-        handled_by_name=handled_by_name,
-        handled_at=event.handled_at,
-        handle_note=event.handle_note,
+        camera_id=event.camera_id,
+        camera_name=event.camera_name,
+        camera_location=event.camera_location,
+        algorithm_id=event.algorithm_id,
+        algorithm_name=event.algorithm_name,
+        confidence_score=event.confidence_score,
+        longitude=event.longitude,
+        latitude=event.latitude,
+        location_description=event.location_description,
+        detection_area=event.detection_area,
+        roi_name=event.roi_name,
+        image_urls=event.image_urls or [],
+        video_urls=event.video_urls or [],
+        thumbnail_url=event.thumbnail_url,
+        detected_objects=event.detected_objects or [],
+        object_count=event.object_count,
+        is_read=event.is_read,
+        is_important=event.is_important,
+        assigned_to=event.assigned_to,
+        processed_by=event.processed_by,
+        processed_at=event.processed_at,
+        resolution_notes=event.resolution_notes,
+        event_time=event.event_time,
         created_at=event.created_at,
-        updated_at=event.updated_at
+        updated_at=event.updated_at,
+        event_metadata=event.event_metadata or {},
+        tags=event.tags or []
     )
 
 @router.delete("/{event_id}")

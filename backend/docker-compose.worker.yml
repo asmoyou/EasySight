@@ -1,0 +1,177 @@
+version: '3.8'
+
+services:
+  # 主应用节点
+  easysight-main:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://easysight:password@postgres:5432/easysight
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - easysight-network
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+
+  # Worker节点1
+  easysight-worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      - WORKER_MASTER_HOST=easysight-main
+      - WORKER_MASTER_PORT=8000
+      - WORKER_NODE_NAME=worker-1
+      - WORKER_WORKER_POOL_SIZE=3
+      - WORKER_MAX_CONCURRENT_TASKS=3
+      - WORKER_LOG_LEVEL=INFO
+      - WORKER_HEARTBEAT_INTERVAL=30
+      - WORKER_TASK_POLL_INTERVAL=5
+      - DATABASE_URL=postgresql+asyncpg://easysight:password@postgres:5432/easysight
+    depends_on:
+      - easysight-main
+      - postgres
+    networks:
+      - easysight-network
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # Worker节点2
+  easysight-worker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      - WORKER_MASTER_HOST=easysight-main
+      - WORKER_MASTER_PORT=8000
+      - WORKER_NODE_NAME=worker-2
+      - WORKER_WORKER_POOL_SIZE=4
+      - WORKER_MAX_CONCURRENT_TASKS=4
+      - WORKER_LOG_LEVEL=INFO
+      - WORKER_HEARTBEAT_INTERVAL=30
+      - WORKER_TASK_POLL_INTERVAL=5
+      - DATABASE_URL=postgresql+asyncpg://easysight:password@postgres:5432/easysight
+    depends_on:
+      - easysight-main
+      - postgres
+    networks:
+      - easysight-network
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # Worker节点3（GPU加速）
+  easysight-worker-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      - WORKER_MASTER_HOST=easysight-main
+      - WORKER_MASTER_PORT=8000
+      - WORKER_NODE_NAME=worker-gpu
+      - WORKER_WORKER_POOL_SIZE=2
+      - WORKER_MAX_CONCURRENT_TASKS=2
+      - WORKER_LOG_LEVEL=INFO
+      - WORKER_HEARTBEAT_INTERVAL=30
+      - WORKER_TASK_POLL_INTERVAL=5
+      - DATABASE_URL=postgresql+asyncpg://easysight:password@postgres:5432/easysight
+    depends_on:
+      - easysight-main
+      - postgres
+    networks:
+      - easysight-network
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # PostgreSQL数据库
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=easysight
+      - POSTGRES_USER=easysight
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    networks:
+      - easysight-network
+    ports:
+      - "5432:5432"
+
+  # Redis缓存
+  redis:
+    image: redis:6-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - easysight-network
+    ports:
+      - "6379:6379"
+
+  # Nginx负载均衡器（可选）
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - easysight-main
+    networks:
+      - easysight-network
+    restart: unless-stopped
+
+  # 监控服务（可选）
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - easysight-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - easysight-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  easysight-network:
+    driver: bridge

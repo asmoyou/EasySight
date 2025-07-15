@@ -313,6 +313,7 @@ const formData = ref<DiagnosisTaskCreate>({
   template_id: undefined,
   config: {},
   schedule_config: {},
+  threshold_config: {},
   is_scheduled: false,
   description: ''
 })
@@ -481,15 +482,19 @@ const handleEdit = (task: DiagnosisTask) => {
     diagnosis_type: task.diagnosis_type,
     target_id: task.target_id,
     target_type: task.target_type,
-    template_id: task.template_id,
-    config: task.config,
-    schedule_config: task.schedule_config,
-    is_scheduled: task.is_scheduled,
-    description: task.description
+    template_id: task.template_id || undefined, // 确保正确设置模板ID
+    config: task.config || {},
+    schedule_config: task.schedule_config || {},
+    threshold_config: task.threshold_config || {},
+    is_scheduled: task.is_scheduled || false,
+    description: task.description || ''
   }
   if (task.schedule_config?.cron_expression) {
     scheduleConfig.value.cron_expression = task.schedule_config.cron_expression
+  } else {
+    scheduleConfig.value.cron_expression = '0 0 * * *'
   }
+  console.log('编辑任务数据:', formData.value) // 调试日志
   dialogVisible.value = true
 }
 
@@ -609,6 +614,7 @@ const resetForm = () => {
     template_id: undefined,
     config: {},
     schedule_config: {},
+    threshold_config: {},
     is_scheduled: false,
     description: ''
   }

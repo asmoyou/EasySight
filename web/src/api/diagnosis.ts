@@ -47,6 +47,7 @@ export interface DiagnosisTask {
   template_name?: string
   config: Record<string, any>
   schedule_config: Record<string, any>
+  threshold_config: Record<string, any>
   status: TaskStatus
   is_scheduled: boolean
   is_active: boolean
@@ -70,14 +71,19 @@ export interface DiagnosisTaskCreate {
   template_id?: number
   config?: Record<string, any>
   schedule_config?: Record<string, any>
+  threshold_config?: Record<string, any>
   is_scheduled?: boolean
   description?: string
 }
 
 export interface DiagnosisTaskUpdate {
   name?: string
+  diagnosis_type?: DiagnosisType
+  target_id?: number
+  template_id?: number
   config?: Record<string, any>
   schedule_config?: Record<string, any>
+  threshold_config?: Record<string, any>
   is_scheduled?: boolean
   is_active?: boolean
   description?: string
@@ -88,14 +94,23 @@ export interface DiagnosisResult {
   id: number
   task_id: number
   task_name: string
+  camera_name?: string  // 摄像头名称
+  diagnosis_type?: string
   status: DiagnosisStatus
   result_data: Record<string, any>
   score?: number
+  score_level?: string  // 分数等级评估
+  score_description?: string  // 分数描述
+  threshold?: number  // 阈值
   issues_found: Array<Record<string, any>>
   recommendations: string[]
   execution_time?: number
+  processing_time?: number  // 处理时间(ms)
   error_message?: string
-  created_at: string
+  image_url?: string
+  thumbnail_url?: string
+  created_at: string  // 检测时间
+  detected_at?: string  // 检测时间别名
 }
 
 // 诊断告警接口
@@ -121,14 +136,14 @@ export interface DiagnosisAlarm {
 export interface DiagnosisTemplate {
   id: number
   name: string
-  diagnosis_type: DiagnosisType
-  config_template: Record<string, any>
+  diagnosis_types: string[]
+  default_config: Record<string, any>
   default_schedule: Record<string, any>
   threshold_config: Record<string, any>
   is_active: boolean
-  is_public: boolean
+  is_system: boolean
   usage_count: number
-  created_by: number
+  created_by: string
   created_by_name: string
   created_at: string
   updated_at: string
@@ -211,6 +226,15 @@ export const diagnosisTaskApi = {
   }
 }
 
+// 诊断结果分页响应接口
+export interface DiagnosisResultListResponse {
+  results: DiagnosisResult[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
 // 诊断结果API
 export const diagnosisResultApi = {
   // 获取结果列表
@@ -221,7 +245,7 @@ export const diagnosisResultApi = {
     status?: DiagnosisStatus
     start_date?: string
     end_date?: string
-  }): Promise<ApiResponse<DiagnosisResult[]>> => {
+  }): Promise<ApiResponse<DiagnosisResultListResponse>> => {
     return request.get('/api/v1/diagnosis/results/', { params })
   },
 
@@ -289,6 +313,199 @@ export const diagnosisTemplateApi = {
   // 删除模板
   deleteTemplate: (id: number): Promise<ApiResponse<void>> => {
     return request.delete(`/api/v1/diagnosis/templates/${id}`)
+  },
+
+  // 启用/禁用模板
+  toggleTemplate: (id: number, is_active: boolean): Promise<ApiResponse<DiagnosisTemplate>> => {
+    return request.put(`/api/v1/diagnosis/templates/${id}`, { is_active })
+  }
+}
+
+// 告警规则接口
+export interface AlarmRule {
+  id: number
+  name: string
+  description: string
+  diagnosis_type: DiagnosisType
+  camera_id?: number
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  threshold_config: Record<string, any>
+  notification_channels: number[]
+  is_enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AlarmRuleCreate {
+  name: string
+  description: string
+  diagnosis_type: DiagnosisType
+  camera_id?: number
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  threshold_config: Record<string, any>
+  notification_channels: number[]
+  is_enabled?: boolean
+}
+
+export interface AlarmRuleUpdate {
+  name?: string
+  description?: string
+  diagnosis_type?: DiagnosisType
+  camera_id?: number
+  severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  threshold_config?: Record<string, any>
+  notification_channels?: number[]
+  is_enabled?: boolean
+}
+
+// 通知渠道接口
+export interface NotificationChannel {
+  id: number
+  name: string
+  type: 'email' | 'sms' | 'webhook' | 'dingtalk' | 'wechat'
+  config: Record<string, any>
+  is_enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface NotificationChannelCreate {
+  name: string
+  type: 'email' | 'sms' | 'webhook' | 'dingtalk' | 'wechat'
+  config: Record<string, any>
+  is_enabled?: boolean
+}
+
+export interface NotificationChannelUpdate {
+  name?: string
+  type?: 'email' | 'sms' | 'webhook' | 'dingtalk' | 'wechat'
+  config?: Record<string, any>
+  is_enabled?: boolean
+}
+
+// 通知日志接口
+export interface NotificationLog {
+  id: number
+  alarm_id: number
+  rule_id: number
+  channel_id: number
+  title: string
+  content: string
+  recipient: string
+  status: 'PENDING' | 'SUCCESS' | 'FAILED'
+  error_message?: string
+  sent_at: string
+}
+
+// 告警规则API
+export const alarmRuleApi = {
+  // 获取规则列表
+  getRules: (params?: {
+    page?: number
+    page_size?: number
+    search?: string
+    diagnosis_type?: DiagnosisType
+    severity?: string
+    is_enabled?: boolean
+  }): Promise<ApiResponse<AlarmRule[]>> => {
+    return request.get('/api/v1/alarm-rules/', { params })
+  },
+
+  // 获取规则详情
+  getRule: (id: number): Promise<ApiResponse<AlarmRule>> => {
+    return request.get(`/api/v1/alarm-rules/${id}`)
+  },
+
+  // 创建规则
+  createRule: (data: AlarmRuleCreate): Promise<ApiResponse<AlarmRule>> => {
+    return request.post('/api/v1/alarm-rules/', data)
+  },
+
+  // 更新规则
+  updateRule: (id: number, data: AlarmRuleUpdate): Promise<ApiResponse<AlarmRule>> => {
+    return request.put(`/api/v1/alarm-rules/${id}`, data)
+  },
+
+  // 删除规则
+  deleteRule: (id: number): Promise<ApiResponse<void>> => {
+    return request.delete(`/api/v1/alarm-rules/${id}`)
+  },
+
+  // 切换启用状态
+  toggleRule: (id: number, is_enabled: boolean): Promise<ApiResponse<AlarmRule>> => {
+    return request.put(`/api/v1/alarm-rules/${id}/toggle`, { is_enabled })
+  },
+
+  // 获取统计信息
+  getStats: (): Promise<ApiResponse<{
+    enabled_count: number
+    critical_count: number
+    triggered_today: number
+    total_count: number
+  }>> => {
+    return request.get('/api/v1/alarm-rules/stats')
+  }
+}
+
+// 通知渠道API
+export const notificationChannelApi = {
+  // 获取渠道列表
+  getChannels: (params?: {
+    page?: number
+    page_size?: number
+    search?: string
+    type?: string
+    is_enabled?: boolean
+  }): Promise<ApiResponse<NotificationChannel[]>> => {
+    return request.get('/api/v1/notification-channels/', { params })
+  },
+
+  // 获取渠道详情
+  getChannel: (id: number): Promise<ApiResponse<NotificationChannel>> => {
+    return request.get(`/api/v1/notification-channels/${id}`)
+  },
+
+  // 创建渠道
+  createChannel: (data: NotificationChannelCreate): Promise<ApiResponse<NotificationChannel>> => {
+    return request.post('/api/v1/notification-channels/', data)
+  },
+
+  // 更新渠道
+  updateChannel: (id: number, data: NotificationChannelUpdate): Promise<ApiResponse<NotificationChannel>> => {
+    return request.put(`/api/v1/notification-channels/${id}`, data)
+  },
+
+  // 删除渠道
+  deleteChannel: (id: number): Promise<ApiResponse<void>> => {
+    return request.delete(`/api/v1/notification-channels/${id}`)
+  },
+
+  // 测试通知
+  testChannel: (id: number, data: {
+    title: string
+    content: string
+    recipient?: string
+  }): Promise<ApiResponse<void>> => {
+    return request.post(`/api/v1/notification-channels/${id}/test`, data)
+  },
+
+  // 获取通知日志
+  getLogs: (id: number, params?: {
+    page?: number
+    page_size?: number
+    status?: string
+  }): Promise<ApiResponse<NotificationLog[]>> => {
+    return request.get(`/api/v1/notification-channels/${id}/logs`, { params })
+  },
+
+  // 获取统计信息
+  getStats: (): Promise<ApiResponse<{
+    enabled_count: number
+    sent_today: number
+    success_rate: number
+    total_count: number
+  }>> => {
+    return request.get('/api/v1/notification-channels/stats')
   }
 }
 

@@ -165,17 +165,26 @@
           <el-button size="small" @click="loadResults">
             <el-icon><Refresh /></el-icon>
             刷新
-          </el-button>
+          </el-button> 
         </div>
       </template>
       <div class="history-content">
         <el-table
-          :data="results"
-          v-loading="resultsLoading"
+          :data="Array.isArray(results) ? results : []"
+          :loading="resultsLoading"
+          row-key="id"
           stripe
           style="width: 100%"
         >
           <el-table-column prop="id" label="ID" width="80" />
+          <el-table-column label="诊断类型" width="120">
+            <template #default="{ row }">
+              <el-tag v-if="row.diagnosis_type" :type="getDiagnosisTypeColor(row.diagnosis_type)" size="small">
+                {{ getDiagnosisTypeName(row.diagnosis_type) }}
+              </el-tag>
+              <span v-else class="text-muted">-</span>
+            </template>
+          </el-table-column>
           <el-table-column label="执行状态" width="100">
             <template #default="{ row }">
               <el-tag :type="getResultStatusColor(row.status)" size="small">
@@ -189,10 +198,27 @@
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="issues_count" label="问题数量" width="100" />
+          <el-table-column label="检测图片" width="100">
+            <template #default="{ row }">
+              <el-image
+                v-if="row.thumbnail_url"
+                :src="row.thumbnail_url"
+                :preview-src-list="[row.image_url || row.thumbnail_url]"
+                fit="cover"
+                style="width: 60px; height: 40px; border-radius: 4px;"
+                preview-teleported
+              />
+              <span v-else class="text-muted">无图片</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="issues_count" label="问题数量" width="100">
+            <template #default="{ row }">
+              <span>{{ row.issues_found?.length || 0 }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="execution_time" label="执行时长" width="120">
             <template #default="{ row }">
-              <span v-if="row.execution_time">{{ row.execution_time }}ms</span>
+              <span v-if="row.execution_time">{{ parseFloat(row.execution_time).toFixed(2) }}ms</span>
               <span v-else class="text-muted">-</span>
             </template>
           </el-table-column>
@@ -332,18 +358,20 @@ const getDiagnosisTypeColor = (type: string) => {
 
 const getResultStatusName = (status: string) => {
   const statusMap: Record<string, string> = {
-    success: '成功',
-    failed: '失败',
-    error: '错误'
+    normal: '正常',
+    warning: '警告',
+    error: '错误',
+    critical: '严重'
   }
   return statusMap[status] || status
 }
 
 const getResultStatusColor = (status: string) => {
   const colorMap: Record<string, string> = {
-    success: 'success',
-    failed: 'warning',
-    error: 'danger'
+    normal: 'success',
+    warning: 'warning',
+    error: 'danger',
+    critical: 'danger'
   }
   return colorMap[status] || 'info'
 }
@@ -384,11 +412,53 @@ const loadResults = async () => {
       page: resultsPage.value,
       page_size: resultsPageSize.value
     })
-    results.value = response.data?.results || []
-    resultsTotal.value = response.data?.total || 0
+    
+    console.log('API Response:', response) // 调试日志
+    
+    // 检查响应是否成功
+    if (response && (response.code === 200 || response.code === undefined)) {
+      // API返回的是DiagnosisResultListResponse结构
+      const data = response.data
+      if (data && typeof data === 'object') {
+        if (Array.isArray(data.results)) {
+          // 验证数组元素是否为有效对象
+          const validResults = data.results.filter(item => 
+            item && typeof item === 'object' && item.id !== undefined
+          )
+          results.value = validResults
+          resultsTotal.value = data.total || validResults.length
+          console.log('Loaded results:', validResults.length, 'items, total:', data.total || validResults.length)
+        } else if (Array.isArray(data)) {
+          // 兼容直接返回数组的情况
+          const validResults = data.filter(item => 
+            item && typeof item === 'object' && item.id !== undefined
+          )
+          results.value = validResults
+          resultsTotal.value = validResults.length
+          console.log('Loaded results (array format):', validResults.length, 'items')
+        } else {
+          console.warn('API返回的数据格式不是预期的结构:', data)
+          results.value = []
+          resultsTotal.value = 0
+        }
+      } else {
+        console.warn('API返回的data为空或格式不正确:', data)
+        results.value = []
+        resultsTotal.value = 0
+      }
+    } else {
+      console.warn('API返回非成功状态:', response?.code, response?.message)
+      results.value = []
+      resultsTotal.value = 0
+      if (response?.message) {
+        ElMessage.warning(response.message)
+      }
+    }
   } catch (error) {
     console.error('加载执行历史失败:', error)
     ElMessage.error('加载执行历史失败')
+    results.value = []
+    resultsTotal.value = 0
   } finally {
     resultsLoading.value = false
   }

@@ -208,6 +208,24 @@ const routes: Array<RouteRecordRaw> = [
               title: '诊断模板',
               icon: 'Document'
             }
+          },
+          {
+            path: '/diagnosis/alarm-rules',
+            name: 'DiagnosisAlarmRules',
+            component: () => import('@/views/diagnosis/alarm-rules.vue'),
+            meta: {
+              title: '告警规则',
+              icon: 'Warning'
+            }
+          },
+          {
+            path: '/diagnosis/notification-channels',
+            name: 'DiagnosisNotificationChannels',
+            component: () => import('@/views/diagnosis/notification-channels.vue'),
+            meta: {
+              title: '通知设置',
+              icon: 'Message'
+            }
           }
         ]
       },

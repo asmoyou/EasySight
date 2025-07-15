@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_, desc
+from sqlalchemy import select, func, and_, or_, desc, text
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date, timedelta
+import json
+import logging
 
 from database import get_db
 from models.diagnosis import (
@@ -11,9 +13,96 @@ from models.diagnosis import (
     DiagnosisType, DiagnosisStatus, TaskStatus
 )
 from models.user import User
+from diagnosis.scheduler import task_scheduler
+from diagnosis.worker import worker_pool
+from diagnosis.executor import diagnosis_executor
 from routers.auth import get_current_user
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+def process_suggestions(suggestions):
+    """处理 suggestions 字段，确保返回正确的数据格式"""
+    if not suggestions:
+        return [], []
+    
+    # 如果是字符串，尝试解析为 JSON
+    if isinstance(suggestions, str):
+        try:
+            suggestions = json.loads(suggestions)
+        except (json.JSONDecodeError, TypeError):
+            suggestions = []
+    
+    # 确保是列表
+    if not isinstance(suggestions, list):
+        suggestions = []
+    
+    # 转换为字典列表格式
+    issues_found = []
+    recommendations = []
+    
+    for item in suggestions:
+        if isinstance(item, dict):
+            issues_found.append(item)
+            if 'recommendation' in item:
+                recommendations.append(item['recommendation'])
+        elif isinstance(item, str):
+            recommendations.append(item)
+            issues_found.append({'description': item, 'type': 'general'})
+    
+    return issues_found, recommendations
+
+def get_score_assessment(score: Optional[float], threshold: Optional[float] = None) -> tuple[str, str]:
+    """获取分数等级评估和描述"""
+    if score is None:
+        return "未知", "无法获取诊断分数"
+    
+    # 智能检测分数范围并标准化到0-100范围
+    normalized_score = score
+    
+    # 如果分数在0-1之间，认为是百分比形式，转换为0-100
+    if 0 <= score <= 1.0:
+        normalized_score = score * 100
+    # 如果分数大于100，可能是错误数据，限制在100以内
+    elif score > 100:
+        normalized_score = 100
+    # 如果分数在1-100之间，直接使用
+    else:
+        normalized_score = score
+    
+    # 分数等级评估（0-100范围）
+    if normalized_score >= 90:
+        level = "优秀"
+        description = "图像质量非常好，各项指标均达到最佳状态"
+    elif normalized_score >= 80:
+        level = "良好"
+        description = "图像质量良好，大部分指标表现正常"
+    elif normalized_score >= 70:
+        level = "一般"
+        description = "图像质量一般，部分指标可能需要关注"
+    elif normalized_score >= 60:
+        level = "较差"
+        description = "图像质量较差，存在明显问题需要处理"
+    else:
+        level = "很差"
+        description = "图像质量很差，存在严重问题需要立即处理"
+    
+    # 如果有阈值，添加阈值比较信息
+    if threshold is not None:
+        # 标准化阈值到相同范围
+        normalized_threshold = threshold
+        if 0 <= threshold <= 1.0 and score > 1.0:
+            normalized_threshold = threshold * 100
+        elif threshold > 1.0 and 0 <= score <= 1.0:
+            normalized_threshold = threshold / 100
+            
+        if score < normalized_threshold:
+            description += f"，当前分数({score:.2f})低于设定阈值({normalized_threshold:.2f})，建议检查设备状态"
+        else:
+            description += f"，当前分数({score:.2f})符合设定阈值({normalized_threshold:.2f})要求"
+    
+    return level, description
 
 # Pydantic models
 class DiagnosisTaskCreate(BaseModel):
@@ -24,13 +113,18 @@ class DiagnosisTaskCreate(BaseModel):
     template_id: Optional[int] = None
     config: Dict[str, Any] = {}
     schedule_config: Dict[str, Any] = {}
+    threshold_config: Dict[str, Any] = {}  # 添加阈值配置字段
     is_scheduled: bool = False
     description: Optional[str] = None
 
 class DiagnosisTaskUpdate(BaseModel):
     name: Optional[str] = None
+    diagnosis_type: Optional[DiagnosisType] = None
+    target_id: Optional[int] = None
+    template_id: Optional[int] = None
     config: Optional[Dict[str, Any]] = None
     schedule_config: Optional[Dict[str, Any]] = None
+    threshold_config: Optional[Dict[str, Any]] = None  # 添加阈值配置字段
     is_scheduled: Optional[bool] = None
     is_active: Optional[bool] = None
     description: Optional[str] = None
@@ -45,6 +139,7 @@ class DiagnosisTaskResponse(BaseModel):
     template_name: Optional[str]
     config: Dict[str, Any]
     schedule_config: Dict[str, Any]
+    threshold_config: Dict[str, Any] = {}  # 添加阈值配置字段
     status: TaskStatus
     is_scheduled: bool
     is_active: bool
@@ -73,14 +168,41 @@ class DiagnosisResultResponse(BaseModel):
     id: int
     task_id: int
     task_name: str
+    camera_name: Optional[str]  # 摄像头名称
+    diagnosis_type: Optional[str]
     status: DiagnosisStatus
     result_data: Dict[str, Any]
     score: Optional[float]
+    score_level: Optional[str] = None  # 分数等级评估
+    score_description: Optional[str] = None  # 分数描述
+    threshold: Optional[float] = None  # 阈值
     issues_found: List[Dict[str, Any]]
     recommendations: List[str]
-    execution_time: Optional[float]
+    execution_time: Optional[float]  # 处理时间(ms)
+    processing_time: Optional[float] = None  # 处理时间别名
     error_message: Optional[str]
-    created_at: datetime
+    image_url: Optional[str]
+    thumbnail_url: Optional[str]
+    created_at: datetime  # 检测时间
+    detected_at: Optional[datetime] = None  # 检测时间别名
+    
+    class Config:
+        from_attributes = True
+        
+    def __init__(self, **data):
+        super().__init__(**data)
+        # 设置别名字段
+        if self.execution_time is not None:
+            self.processing_time = self.execution_time
+        if self.created_at is not None:
+            self.detected_at = self.created_at
+
+class DiagnosisResultListResponse(BaseModel):
+    results: List[DiagnosisResultResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 class DiagnosisAlarmCreate(BaseModel):
     result_id: int
@@ -211,20 +333,29 @@ async def get_diagnosis_tasks(
     result = await db.execute(query)
     tasks = result.scalars().all()
     
-    # 获取创建者信息
+    # 获取创建者信息和模板信息
     creator_map = {}
+    template_map = {}
     
     if tasks:
         # 将字符串类型的 created_by 转换为整数类型
         creator_ids = []
+        template_ids = []
         for t in tasks:
             if t.created_by and t.created_by.isdigit():
                 creator_ids.append(int(t.created_by))
+            if hasattr(t, 'template_id') and t.template_id:
+                template_ids.append(t.template_id)
         
         if creator_ids:
             creator_result = await db.execute(select(User).where(User.id.in_(creator_ids)))
             creators = creator_result.scalars().all()
             creator_map = {str(c.id): c.username for c in creators}  # 使用字符串作为键
+        
+        if template_ids:
+            template_result = await db.execute(select(DiagnosisTemplate).where(DiagnosisTemplate.id.in_(template_ids)))
+            templates = template_result.scalars().all()
+            template_map = {t.id: t.name for t in templates}
     
     return [DiagnosisTaskResponse(
         id=task.id,
@@ -232,10 +363,11 @@ async def get_diagnosis_tasks(
         diagnosis_type=task.diagnosis_types[0] if task.diagnosis_types else None,  # 取第一个类型作为主类型
         target_id=task.camera_ids[0] if task.camera_ids else None,  # 取第一个摄像头ID
         target_type='camera',
-        template_id=None,  # 暂时设为None，后续可以添加模板关联
-        template_name=None,
+        template_id=task.template_id,
+        template_name=template_map.get(task.template_id) if hasattr(task, 'template_id') and task.template_id else None,
         config=task.diagnosis_config or {},
         schedule_config=task.schedule_config or {},
+        threshold_config=task.threshold_config or {},  # 添加阈值配置
         status=task.status,
         is_scheduled=task.schedule_type is not None,  # 根据 schedule_type 判断是否为定时任务
         is_active=task.is_active,
@@ -284,10 +416,14 @@ async def create_diagnosis_task(
         target_id = task_dict.pop('target_id')
         task_dict['camera_ids'] = [target_id] if target_id else []
     
+    # 字段名转换：前端使用 config，数据库使用 diagnosis_config
+    if 'config' in task_dict:
+        config = task_dict.pop('config')
+        task_dict['diagnosis_config'] = config
+    
+    # threshold_config 字段直接保存，无需转换
     # 移除前端字段，数据库中不存在
     task_dict.pop('target_type', None)
-    task_dict.pop('template_id', None)
-    task_dict.pop('config', None)
     task_dict.pop('is_scheduled', None)
     
     task = DiagnosisTask(**task_dict)
@@ -301,10 +437,11 @@ async def create_diagnosis_task(
         diagnosis_type=task.diagnosis_types[0] if task.diagnosis_types else None,  # 取第一个类型作为主类型
         target_id=task.camera_ids[0] if task.camera_ids else None,  # 取第一个摄像头ID
         target_type='camera',
-        template_id=None,  # 暂时设为None，后续可以添加模板关联
+        template_id=task.template_id,
         template_name=template_name,
         config=task.diagnosis_config or {},
         schedule_config=task.schedule_config or {},
+        threshold_config=task.threshold_config or {},  # 添加阈值配置
         status=task.status,
         is_scheduled=task.schedule_type is not None,  # 根据 schedule_type 判断是否为定时任务
         is_active=task.is_active,
@@ -338,12 +475,13 @@ async def get_diagnosis_task(
     
     # 获取模板和创建者信息
     template_name = None
-    # 注意：DiagnosisTask 模型中没有 template_id 字段，暂时设为 None
-    # if hasattr(task, 'template_id') and task.template_id:
-    #     template_result = await db.execute(select(DiagnosisTemplate).where(DiagnosisTemplate.id == task.template_id))
-    #     template = template_result.scalar_one_or_none()
-    #     if template:
-    #         template_name = template.name
+    template_id = None
+    if hasattr(task, 'template_id') and task.template_id:
+        template_result = await db.execute(select(DiagnosisTemplate).where(DiagnosisTemplate.id == task.template_id))
+        template = template_result.scalar_one_or_none()
+        if template:
+            template_name = template.name
+            template_id = template.id
     
     # 将字符串类型的 created_by 转换为整数类型进行查询
     creator_name = ""
@@ -358,10 +496,11 @@ async def get_diagnosis_task(
         diagnosis_type=task.diagnosis_types[0] if task.diagnosis_types else None,  # 取第一个类型作为主类型
         target_id=task.camera_ids[0] if task.camera_ids else None,  # 取第一个摄像头ID
         target_type='camera',
-        template_id=None,  # 暂时设为None，后续可以添加模板关联
+        template_id=template_id,
         template_name=template_name,
         config=task.diagnosis_config or {},
         schedule_config=task.schedule_config or {},
+        threshold_config=task.threshold_config or {},  # 添加阈值配置
         status=task.status,
         is_scheduled=task.schedule_type is not None,  # 根据 schedule_type 判断是否为定时任务
         is_active=task.is_active,
@@ -395,15 +534,47 @@ async def update_diagnosis_task(
         )
     
     update_data = task_data.dict(exclude_unset=True)
+    
+    # 字段映射：前端字段名 -> 数据库字段名
+    field_mapping = {
+        'diagnosis_type': 'diagnosis_types',
+        'target_id': 'camera_ids',
+        'config': 'diagnosis_config'
+    }
+    
+    # threshold_config 字段直接更新，无需映射
+    
     for field, value in update_data.items():
-        setattr(task, field, value)
+        if field in field_mapping:
+            db_field = field_mapping[field]
+            if field == 'diagnosis_type' and value:
+                # 诊断类型转换为列表，确保枚举值被转换为字符串
+                if isinstance(value, DiagnosisType):
+                    setattr(task, db_field, [value.value])
+                else:
+                    setattr(task, db_field, [value])
+            elif field == 'target_id' and value:
+                # 目标ID转换为列表
+                setattr(task, db_field, [value])
+            elif field == 'config':
+                # 配置直接映射
+                setattr(task, db_field, value)
+        else:
+            # 其他字段直接设置
+            setattr(task, field, value)
     
     await db.commit()
     await db.refresh(task)
     
     # 获取相关信息
     template_name = None
-    # 注意：DiagnosisTask 模型中没有 template_id 字段，暂时设为 None
+    template_id = None
+    if hasattr(task, 'template_id') and task.template_id:
+        template_result = await db.execute(select(DiagnosisTemplate).where(DiagnosisTemplate.id == task.template_id))
+        template = template_result.scalar_one_or_none()
+        if template:
+            template_name = template.name
+            template_id = template.id
     
     # 将字符串类型的 created_by 转换为整数类型进行查询
     creator_name = ""
@@ -418,10 +589,11 @@ async def update_diagnosis_task(
         diagnosis_type=task.diagnosis_types[0] if task.diagnosis_types else None,  # 取第一个类型作为主类型
         target_id=task.camera_ids[0] if task.camera_ids else None,  # 取第一个摄像头ID
         target_type='camera',
-        template_id=None,  # 暂时设为None，后续可以添加模板关联
+        template_id=template_id,
         template_name=template_name,
         config=task.diagnosis_config or {},
         schedule_config=task.schedule_config or {},
+        threshold_config=task.threshold_config or {},  # 添加阈值配置
         status=task.status,
         is_scheduled=task.schedule_type is not None,  # 根据 schedule_type 判断是否为定时任务
         is_active=task.is_active,
@@ -488,18 +660,33 @@ async def run_diagnosis_task(
     
     # 更新任务状态
     task.status = TaskStatus.RUNNING
-    task.last_run = datetime.utcnow()
-    task.run_count += 1
+    task.last_run_time = datetime.utcnow()
+    task.total_runs += 1
     
     await db.commit()
     
-    # 这里应该触发实际的诊断执行逻辑
-    # 为了演示，我们只是返回成功消息
+    # 使用新的诊断执行系统
+    from diagnosis.scheduler import task_scheduler
     
-    return {"message": "诊断任务已开始执行"}
+    # 立即执行任务
+    execution_result = await task_scheduler.execute_task_immediately(task_id)
+    
+    if execution_result.get('error'):
+        # 如果执行失败，恢复任务状态
+        task.status = TaskStatus.FAILED
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"任务执行失败: {execution_result['error']}"
+        )
+    
+    return {
+        "message": "诊断任务执行完成",
+        "result": execution_result
+    }
 
 # 诊断结果管理
-@router.get("/results/", response_model=List[DiagnosisResultResponse])
+@router.get("/results/", response_model=DiagnosisResultListResponse)
 async def get_diagnosis_results(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
@@ -526,6 +713,15 @@ async def get_diagnosis_results(
         end_datetime = datetime.combine(end_date, datetime.max.time())
         conditions.append(DiagnosisResult.created_at <= end_datetime)
     
+    # 获取总数
+    count_query = select(func.count(DiagnosisResult.id))
+    if conditions:
+        count_query = count_query.where(and_(*conditions))
+    
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
+    
+    # 获取分页数据
     query = select(DiagnosisResult).order_by(desc(DiagnosisResult.created_at))
     if conditions:
         query = query.where(and_(*conditions))
@@ -536,27 +732,71 @@ async def get_diagnosis_results(
     result = await db.execute(query)
     results = result.scalars().all()
     
-    # 获取任务信息
+    # 获取任务信息和摄像头信息
     task_map = {}
+    camera_map = {}
     if results:
         task_ids = [r.task_id for r in results]
         task_result = await db.execute(select(DiagnosisTask).where(DiagnosisTask.id.in_(task_ids)))
         tasks = task_result.scalars().all()
         task_map = {t.id: t.name for t in tasks}
+        
+        # 获取摄像头信息
+        from models.camera import Camera
+        camera_ids = []
+        for task in tasks:
+            if task.camera_ids:
+                camera_ids.extend(task.camera_ids)
+        
+        if camera_ids:
+            camera_result = await db.execute(select(Camera).where(Camera.id.in_(camera_ids)))
+            cameras = camera_result.scalars().all()
+            camera_map = {c.id: c.name for c in cameras}
     
-    return [DiagnosisResultResponse(
-        id=result.id,
-        task_id=result.task_id,
-        task_name=task_map.get(result.task_id, ""),
-        status=result.diagnosis_status,
-        result_data=result.result_data,
-        score=result.score,
-        issues_found=result.suggestions,  # 使用 suggestions 字段
-        recommendations=result.suggestions,
-        execution_time=result.processing_time,  # 使用 processing_time 字段
-        error_message=result.error_message,
-        created_at=result.created_at
-    ) for result in results]
+    response_list = []
+    for result in results:
+        issues_found, recommendations = process_suggestions(result.suggestions)
+        
+        # 获取摄像头名称
+        camera_name = None
+        task = next((t for t in tasks if t.id == result.task_id), None)
+        if task and task.camera_ids:
+            camera_id = task.camera_ids[0]  # 取第一个摄像头
+            camera_name = camera_map.get(camera_id)
+        
+        # 获取分数评估
+        score_level, score_description = get_score_assessment(result.score, result.threshold)
+        
+        response_list.append(DiagnosisResultResponse(
+            id=result.id,
+            task_id=result.task_id,
+            task_name=task_map.get(result.task_id, ""),
+            camera_name=camera_name,
+            diagnosis_type=result.diagnosis_type,
+            status=result.diagnosis_status,
+            result_data=result.result_data,
+            score=result.score,
+            score_level=score_level,
+            score_description=score_description,
+            threshold=result.threshold,
+            issues_found=issues_found,
+            recommendations=recommendations,
+            execution_time=result.processing_time,
+            error_message=result.error_message,
+            image_url=result.image_url,
+            thumbnail_url=result.thumbnail_url,
+            created_at=result.created_at
+        ))
+    
+    total_pages = (total + page_size - 1) // page_size
+    
+    return DiagnosisResultListResponse(
+        results=response_list,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages
+    )
 
 @router.post("/results/", response_model=DiagnosisResultResponse)
 async def create_diagnosis_result(
@@ -588,17 +828,23 @@ async def create_diagnosis_result(
     task.status = TaskStatus.IDLE
     await db.commit()
     
+    # 处理 suggestions 字段
+    issues_found, recommendations = process_suggestions(result.suggestions)
+    
     return DiagnosisResultResponse(
         id=result.id,
         task_id=result.task_id,
         task_name=task.name,
+        diagnosis_type=result.diagnosis_type,
         status=result.diagnosis_status,
         result_data=result.result_data,
         score=result.score,
-        issues_found=result.suggestions,
-        recommendations=result.suggestions,
+        issues_found=issues_found,
+        recommendations=recommendations,
         execution_time=result.processing_time,
         error_message=result.error_message,
+        image_url=result.image_url,
+        thumbnail_url=result.thumbnail_url,
         created_at=result.created_at
     )
 
@@ -623,17 +869,38 @@ async def get_diagnosis_result(
     task = task_result.scalar_one_or_none()
     task_name = task.name if task else "未知任务"
     
+    # 获取摄像头信息
+    camera_name = None
+    if task and task.camera_ids:
+        from models.camera import Camera
+        camera_result = await db.execute(select(Camera).where(Camera.id == task.camera_ids[0]))
+        camera = camera_result.scalar_one_or_none()
+        camera_name = camera.name if camera else None
+    
+    # 处理 suggestions 字段
+    issues_found, recommendations = process_suggestions(diagnosis_result.suggestions)
+    
+    # 获取分数评估
+    score_level, score_description = get_score_assessment(diagnosis_result.score, diagnosis_result.threshold)
+    
     return DiagnosisResultResponse(
         id=diagnosis_result.id,
         task_id=diagnosis_result.task_id,
         task_name=task_name,
+        camera_name=camera_name,
+        diagnosis_type=diagnosis_result.diagnosis_type,
         status=diagnosis_result.diagnosis_status,
         result_data=diagnosis_result.result_data,
         score=diagnosis_result.score,
-        issues_found=diagnosis_result.suggestions,
-        recommendations=diagnosis_result.suggestions,
+        score_level=score_level,
+        score_description=score_description,
+        threshold=diagnosis_result.threshold,
+        issues_found=issues_found,
+        recommendations=recommendations,
         execution_time=diagnosis_result.processing_time,
         error_message=diagnosis_result.error_message,
+        image_url=diagnosis_result.image_url,
+        thumbnail_url=diagnosis_result.thumbnail_url,
         created_at=diagnosis_result.created_at
     )
 
@@ -809,6 +1076,137 @@ async def get_diagnosis_templates(
         updated_at=template.updated_at,
         description=template.description
     ) for template in templates]
+
+@router.put("/templates/{template_id}", response_model=DiagnosisTemplateResponse)
+async def update_diagnosis_template(
+    template_id: int,
+    template_data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """更新诊断模板"""
+    try:
+        # 查找模板
+        result = await db.execute(select(DiagnosisTemplate).where(DiagnosisTemplate.id == template_id))
+        template = result.scalar_one_or_none()
+        
+        if not template:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="模板不存在"
+            )
+        
+        # 更新字段
+        for key, value in template_data.items():
+            if hasattr(template, key):
+                # 特殊处理diagnosis_type字段，确保枚举值被转换为字符串
+                if key == 'diagnosis_type' and value:
+                    from models.diagnosis import DiagnosisType
+                    if isinstance(value, DiagnosisType):
+                        setattr(template, 'diagnosis_types', [value.value])
+                    else:
+                        setattr(template, 'diagnosis_types', [value])
+                elif key == 'diagnosis_types' and value:
+                    # 如果直接更新diagnosis_types，确保所有值都是字符串
+                    from models.diagnosis import DiagnosisType
+                    string_values = []
+                    for v in value if isinstance(value, list) else [value]:
+                        if isinstance(v, DiagnosisType):
+                            string_values.append(v.value)
+                        else:
+                            string_values.append(v)
+                    setattr(template, key, string_values)
+                else:
+                    setattr(template, key, value)
+        
+        await db.commit()
+        await db.refresh(template)
+        
+        # 获取创建者信息
+        creator_name = ""
+        if template.created_by:
+            try:
+                creator_id = int(template.created_by)
+                creator_result = await db.execute(select(User).where(User.id == creator_id))
+                creator = creator_result.scalar_one_or_none()
+                if creator:
+                    creator_name = creator.username
+            except (ValueError, TypeError):
+                # 如果created_by不是有效的整数，跳过获取创建者信息
+                pass
+        
+        return DiagnosisTemplateResponse(
+            id=template.id,
+            name=template.name,
+            diagnosis_types=template.diagnosis_types or [],
+            default_config=template.default_config,
+            default_schedule=template.default_schedule,
+            threshold_config=template.threshold_config,
+            is_active=template.is_active,
+            is_system=template.is_system,
+            usage_count=template.usage_count,
+            created_by=template.created_by,
+            created_by_name=creator_name,
+            created_at=template.created_at,
+            updated_at=template.updated_at,
+            description=template.description
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"更新模板失败: {str(e)}"
+        )
+
+@router.delete("/templates/{template_id}")
+async def delete_diagnosis_template(
+    template_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """删除诊断模板"""
+    try:
+        # 查找模板
+        result = await db.execute(select(DiagnosisTemplate).where(DiagnosisTemplate.id == template_id))
+        template = result.scalar_one_or_none()
+        
+        if not template:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="模板不存在"
+            )
+        
+        # 检查是否为系统模板
+        if template.is_system:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="系统模板不能删除"
+            )
+        
+        # 注意：当前数据库设计中任务和模板之间没有直接关联字段
+        # 如果将来需要添加模板关联，可以在这里添加相应的检查逻辑
+        
+        # 删除模板
+        await db.delete(template)
+        await db.commit()
+        
+        return {"message": "模板删除成功"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"删除模板失败: {str(e)}"
+        )
 
 @router.post("/templates/", response_model=DiagnosisTemplateResponse)
 async def create_diagnosis_template(
@@ -986,3 +1384,499 @@ async def get_diagnosis_stats(
         by_status=by_status,
         trend_data=trend_data
     )
+
+# 调度器管理API
+@router.get("/scheduler/status")
+async def get_scheduler_status(
+    current_user: User = Depends(get_current_user)
+):
+    """获取调度器状态"""
+    return {
+        "scheduler_running": task_scheduler.running,
+        "running_tasks": task_scheduler.get_running_tasks(),
+        "worker_status": task_scheduler.get_worker_status()
+    }
+
+@router.post("/scheduler/start")
+async def start_scheduler(
+    current_user: User = Depends(get_current_user)
+):
+    """启动调度器"""
+    await task_scheduler.start()
+    return {"message": "调度器已启动"}
+
+@router.post("/scheduler/stop")
+async def stop_scheduler(
+    current_user: User = Depends(get_current_user)
+):
+    """停止调度器"""
+    await task_scheduler.stop()
+    return {"message": "调度器已停止"}
+
+# Worker管理API
+@router.get("/workers/status")
+async def get_worker_status(
+    current_user: User = Depends(get_current_user)
+):
+    """获取Worker状态"""
+    return worker_pool.get_pool_status()
+
+@router.post("/workers/start")
+async def start_workers(
+    pool_size: int = Query(3, ge=1, le=10, description="Worker池大小"),
+    current_user: User = Depends(get_current_user)
+):
+    """启动Worker池"""
+    from diagnosis.worker import start_worker_pool
+    await start_worker_pool(pool_size)
+    return {"message": f"Worker池已启动，包含 {pool_size} 个Worker"}
+
+@router.post("/workers/stop")
+async def stop_workers(
+    current_user: User = Depends(get_current_user)
+):
+    """停止Worker池"""
+    from diagnosis.worker import stop_worker_pool
+    await stop_worker_pool()
+    return {"message": "Worker池已停止"}
+
+# 任务队列管理API
+@router.post("/tasks/{task_id}/submit")
+async def submit_task_to_queue(
+    task_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """提交任务到Worker队列"""
+    # 验证任务存在
+    result = await db.execute(select(DiagnosisTask).where(DiagnosisTask.id == task_id))
+    task = result.scalar_one_or_none()
+    
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="诊断任务不存在"
+        )
+    
+    # 提交到Worker队列
+    success = await worker_pool.submit_task(task_id)
+    
+    if success:
+        return {"message": "任务已提交到执行队列"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="任务提交失败"
+        )
+
+# 分布式Worker节点管理API
+class WorkerNodeInfo(BaseModel):
+    node_id: str
+    node_name: str
+    worker_pool_size: int
+    max_concurrent_tasks: int
+    capabilities: List[str] = []
+    status: str = "online"
+    registered_at: datetime
+
+class WorkerHeartbeat(BaseModel):
+    node_id: str
+    timestamp: datetime
+    status: str
+    worker_status: Dict[str, Any] = {}
+    system_info: Dict[str, Any] = {}
+
+class TaskFetchRequest(BaseModel):
+    node_id: str
+    batch_size: int = 1
+
+class TaskFetchResponse(BaseModel):
+    tasks: List[Dict[str, Any]]
+    total_available: int
+
+# 存储分布式worker节点信息（生产环境应使用Redis或数据库）
+distributed_workers: Dict[str, Dict[str, Any]] = {}
+
+@router.post("/workers/register")
+async def register_worker_node(
+    node_info: WorkerNodeInfo,
+    current_user: User = Depends(get_current_user)
+):
+    """注册分布式Worker节点"""
+    node_data = {
+        "node_id": node_info.node_id,
+        "node_name": node_info.node_name,
+        "worker_pool_size": node_info.worker_pool_size,
+        "max_concurrent_tasks": node_info.max_concurrent_tasks,
+        "capabilities": node_info.capabilities,
+        "status": node_info.status,
+        "registered_at": node_info.registered_at,
+        "last_heartbeat": datetime.utcnow(),
+        "total_tasks_executed": 0,
+        "current_tasks": 0
+    }
+    
+    distributed_workers[node_info.node_id] = node_data
+    
+    return {
+        "message": f"Worker节点 {node_info.node_id} 注册成功",
+        "node_id": node_info.node_id
+    }
+
+@router.delete("/workers/{node_id}")
+async def unregister_worker_node(
+    node_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """注销分布式Worker节点"""
+    if node_id in distributed_workers:
+        del distributed_workers[node_id]
+        return {"message": f"Worker节点 {node_id} 注销成功"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Worker节点不存在"
+        )
+
+@router.post("/workers/{node_id}/heartbeat")
+async def worker_heartbeat(
+    node_id: str,
+    heartbeat: WorkerHeartbeat,
+    current_user: User = Depends(get_current_user)
+):
+    """接收Worker节点心跳"""
+    if node_id not in distributed_workers:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Worker节点未注册"
+        )
+    
+    # 更新心跳信息
+    distributed_workers[node_id].update({
+        "last_heartbeat": heartbeat.timestamp,
+        "status": heartbeat.status,
+        "worker_status": heartbeat.worker_status,
+        "system_info": heartbeat.system_info
+    })
+    
+    return {"message": "心跳接收成功"}
+
+@router.get("/workers/distributed")
+async def get_distributed_workers(
+    current_user: User = Depends(get_current_user)
+):
+    """获取所有分布式Worker节点状态"""
+    current_time = datetime.utcnow()
+    
+    # 检查节点是否在线（超过3分钟未发送心跳认为离线）
+    for node_id, node_data in distributed_workers.items():
+        last_heartbeat = node_data.get("last_heartbeat")
+        if last_heartbeat and (current_time - last_heartbeat).total_seconds() > 180:
+            node_data["status"] = "offline"
+    
+    return {
+        "total_nodes": len(distributed_workers),
+        "online_nodes": len([n for n in distributed_workers.values() if n["status"] == "online"]),
+        "nodes": list(distributed_workers.values())
+    }
+
+@router.get("/tasks/fetch")
+async def fetch_tasks_for_worker(
+    node_id: str = Query(..., description="Worker节点ID"),
+    batch_size: int = Query(1, ge=1, le=10, description="批量获取任务数量"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """为分布式Worker节点获取待执行的任务"""
+    if node_id not in distributed_workers:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Worker节点未注册"
+        )
+    
+    # 查询待执行的任务
+    result = await db.execute(
+        select(DiagnosisTask)
+        .where(
+            and_(
+                DiagnosisTask.is_active == True,
+                DiagnosisTask.status == TaskStatus.PENDING
+            )
+        )
+        .limit(batch_size)
+    )
+    
+    tasks = result.scalars().all()
+    
+    # 将任务标记为运行中（简化处理，实际应该有更复杂的任务分配逻辑）
+    task_list = []
+    for task in tasks:
+        task.status = TaskStatus.RUNNING
+        task_list.append({
+            "task_id": task.id,
+            "name": task.name,
+            "diagnosis_type": task.diagnosis_type.value,
+            "target_id": task.target_id,
+            "target_type": task.target_type,
+            "config": task.config,
+            "assigned_node": node_id
+        })
+    
+    await db.commit()
+    
+    # 更新节点当前任务数
+    if node_id in distributed_workers:
+        distributed_workers[node_id]["current_tasks"] = distributed_workers[node_id].get("current_tasks", 0) + len(task_list)
+    
+    return TaskFetchResponse(
+        tasks=task_list,
+        total_available=len(task_list)
+    )
+
+@router.post("/tasks/{task_id}/complete")
+async def complete_distributed_task(
+    task_id: int,
+    result_data: Dict[str, Any],
+    node_id: str = Query(..., description="Worker节点ID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """分布式Worker节点完成任务后的回调"""
+    if node_id not in distributed_workers:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Worker节点未注册"
+        )
+    
+    # 查询任务
+    result = await db.execute(select(DiagnosisTask).where(DiagnosisTask.id == task_id))
+    task = result.scalar_one_or_none()
+    
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="任务不存在"
+        )
+    
+    # 更新任务状态
+    task.status = TaskStatus.COMPLETED if result_data.get("success", False) else TaskStatus.FAILED
+    task.last_run = datetime.utcnow()
+    task.run_count += 1
+    
+    if result_data.get("success", False):
+        task.success_count += 1
+    else:
+        task.error_count += 1
+    
+    # 创建诊断结果
+    diagnosis_result = DiagnosisResult(
+        task_id=task_id,
+        status=DiagnosisStatus.SUCCESS if result_data.get("success", False) else DiagnosisStatus.FAILED,
+        result_data=result_data.get("result_data", {}),
+        score=result_data.get("score"),
+        issues_found=result_data.get("issues_found", []),
+        recommendations=result_data.get("recommendations", []),
+        execution_time=result_data.get("execution_time"),
+        error_message=result_data.get("error_message")
+    )
+    
+    db.add(diagnosis_result)
+    await db.commit()
+    
+    # 更新节点统计
+    if node_id in distributed_workers:
+        distributed_workers[node_id]["total_tasks_executed"] = distributed_workers[node_id].get("total_tasks_executed", 0) + 1
+        distributed_workers[node_id]["current_tasks"] = max(0, distributed_workers[node_id].get("current_tasks", 0) - 1)
+    
+    return {"message": "任务完成状态已更新"}
+
+# 任务恢复机制相关API
+class TaskRecoveryResponse(BaseModel):
+    """任务恢复响应模型"""
+    checked_tasks: int
+    reset_tasks: int
+    reset_task_ids: List[int]
+    message: str
+
+class TaskStatusCheckResponse(BaseModel):
+    """任务状态检查响应模型"""
+    running_tasks: List[Dict[str, Any]]
+    stuck_tasks: List[Dict[str, Any]]
+    total_running: int
+    total_stuck: int
+    message: str
+
+@router.post("/tasks/recovery", response_model=TaskRecoveryResponse)
+async def recover_stuck_tasks(
+    force_reset: bool = Query(False, description="是否强制重置所有运行中的任务"),
+    max_runtime_minutes: int = Query(30, description="任务最大运行时间（分钟），超过此时间认为卡住"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    恢复卡住的诊断任务
+    
+    检查数据库中处于运行状态但实际未在执行的任务，并将其重置为待执行状态。
+    """
+    try:
+        logger.info(f"开始任务恢复检查，用户: {current_user.username}")
+        
+        # 使用原生SQL查询运行中的任务
+        result = await db.execute(
+            text("SELECT * FROM diagnosis_tasks WHERE status = 'running'")
+        )
+        running_tasks = result.fetchall()
+        
+        reset_count = 0
+        reset_task_ids = []
+        
+        for task_row in running_tasks:
+            task_id = task_row[0]  # id字段
+            task_name = task_row[1]  # name字段
+            last_run_time = task_row[16]  # last_run_time字段
+            
+            should_reset = False
+            reset_reason = ""
+            
+            # 检查任务是否真的在运行
+            is_actually_running = task_id in diagnosis_executor.running_tasks
+            
+            if force_reset:
+                should_reset = True
+                reset_reason = "强制重置"
+            elif not is_actually_running:
+                should_reset = True
+                reset_reason = "任务不在执行器运行列表中"
+            elif last_run_time:
+                # 检查运行时间是否过长
+                if isinstance(last_run_time, str):
+                    last_run_time = datetime.fromisoformat(last_run_time.replace('Z', '+00:00'))
+                
+                time_diff = datetime.now(last_run_time.tzinfo) - last_run_time
+                
+                if time_diff > timedelta(minutes=max_runtime_minutes):
+                    should_reset = True
+                    reset_reason = f"任务运行时间过长 ({time_diff})"
+            else:
+                should_reset = True
+                reset_reason = "任务无最后运行时间记录"
+            
+            if should_reset:
+                logger.info(f"重置任务 {task_id} ({task_name}): {reset_reason}")
+                
+                # 使用原生SQL重置任务状态
+                await db.execute(
+                    text("UPDATE diagnosis_tasks SET status = 'pending' WHERE id = :task_id"),
+                    {"task_id": task_id}
+                )
+                
+                # 从执行器运行列表中移除
+                diagnosis_executor.running_tasks.discard(task_id)
+                
+                reset_count += 1
+                reset_task_ids.append(task_id)
+        
+        if reset_count > 0:
+            await db.commit()
+            message = f"成功重置 {reset_count} 个卡住的任务"
+            logger.info(message)
+        else:
+            message = "没有发现需要重置的任务"
+            logger.info(message)
+        
+        return TaskRecoveryResponse(
+            checked_tasks=len(running_tasks),
+            reset_tasks=reset_count,
+            reset_task_ids=reset_task_ids,
+            message=message
+        )
+        
+    except Exception as e:
+        logger.error(f"任务恢复失败: {str(e)}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"任务恢复失败: {str(e)}"
+        )
+
+@router.get("/tasks/status-check", response_model=TaskStatusCheckResponse)
+async def check_task_status(
+    max_runtime_minutes: int = Query(30, description="任务最大运行时间（分钟），超过此时间认为卡住"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    检查任务状态
+    
+    返回当前运行中的任务和可能卡住的任务信息，不进行任何修改操作。
+    """
+    try:
+        # 使用原生SQL查询运行中的任务
+        result = await db.execute(
+            text("SELECT * FROM diagnosis_tasks WHERE status = 'running'")
+        )
+        running_tasks = result.fetchall()
+        
+        running_task_list = []
+        stuck_task_list = []
+        
+        for task_row in running_tasks:
+            task_id = task_row[0]  # id字段
+            task_name = task_row[1]  # name字段
+            last_run_time = task_row[16]  # last_run_time字段
+            is_active = task_row[15]  # is_active字段
+            
+            # 检查任务是否真的在运行
+            is_actually_running = task_id in diagnosis_executor.running_tasks
+            
+            task_info = {
+                "id": task_id,
+                "name": task_name,
+                "last_run_time": last_run_time.isoformat() if last_run_time else None,
+                "is_active": is_active,
+                "is_actually_running": is_actually_running
+            }
+            
+            # 判断是否卡住
+            is_stuck = False
+            stuck_reason = ""
+            
+            if not is_actually_running:
+                is_stuck = True
+                stuck_reason = "任务不在执行器运行列表中"
+            elif last_run_time:
+                if isinstance(last_run_time, str):
+                    last_run_time = datetime.fromisoformat(last_run_time.replace('Z', '+00:00'))
+                
+                time_diff = datetime.now(last_run_time.tzinfo) - last_run_time
+                task_info["runtime_minutes"] = time_diff.total_seconds() / 60
+                
+                if time_diff > timedelta(minutes=max_runtime_minutes):
+                    is_stuck = True
+                    stuck_reason = f"任务运行时间过长 ({time_diff})"
+            else:
+                is_stuck = True
+                stuck_reason = "任务无最后运行时间记录"
+            
+            if is_stuck:
+                task_info["stuck_reason"] = stuck_reason
+                stuck_task_list.append(task_info)
+            
+            running_task_list.append(task_info)
+        
+        message = f"检查完成：运行中任务 {len(running_task_list)} 个，卡住任务 {len(stuck_task_list)} 个"
+        
+        return TaskStatusCheckResponse(
+            running_tasks=running_task_list,
+            stuck_tasks=stuck_task_list,
+            total_running=len(running_task_list),
+            total_stuck=len(stuck_task_list),
+            message=message
+        )
+        
+    except Exception as e:
+        logger.error(f"任务状态检查失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"任务状态检查失败: {str(e)}"
+        )

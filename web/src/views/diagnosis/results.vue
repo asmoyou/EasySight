@@ -131,6 +131,7 @@
         v-loading="loading"
         stripe
         style="width: 100%"
+        row-key="id"
         @selection-change="handleSelectionChange"
       >
         <el-table-column type="selection" width="55" />
@@ -156,15 +157,12 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="诊断分数" width="120">
+        <el-table-column label="诊断分数" width="150">
           <template #default="{ row }">
             <div class="score-display">
-              <el-progress
-                :percentage="Math.round(row.score * 100)"
-                :color="getScoreColor(row.score)"
-                :stroke-width="8"
-              />
-              <span class="score-text">{{ (row.score * 100).toFixed(1) }}%</span>
+              <div class="score-value">{{ row.score ? row.score.toFixed(2) : '0.00' }}</div>
+              <div class="score-level" :class="getScoreLevelClass(row.score_level)">{{ row.score_level || '未知' }}</div>
+              <div class="score-description">{{ row.score_description || '暂无评估' }}</div>
             </div>
           </template>
         </el-table-column>
@@ -172,8 +170,8 @@
         <el-table-column label="阈值对比" width="100">
           <template #default="{ row }">
             <div class="threshold-info">
-              <span :class="{ 'threshold-exceeded': row.score < row.threshold }">{{ (row.threshold * 100).toFixed(1) }}%</span>
-              <el-icon v-if="row.score < row.threshold" color="#F56C6C"><Warning /></el-icon>
+              <span :class="{ 'threshold-exceeded': row.score < row.threshold }">{{ row.threshold ? row.threshold.toFixed(2) : '-' }}</span>
+              <el-icon v-if="row.score && row.threshold && row.score < row.threshold" color="#F56C6C"><Warning /></el-icon>
             </div>
           </template>
         </el-table-column>
@@ -186,20 +184,23 @@
               :preview-src-list="[row.image_url]"
               fit="cover"
               style="width: 60px; height: 40px; border-radius: 4px"
+              :z-index="9999"
+              preview-teleported
             />
             <span v-else class="text-muted">无图像</span>
           </template>
         </el-table-column>
         
-        <el-table-column prop="detected_at" label="检测时间" width="150">
+        <el-table-column prop="created_at" label="检测时间" width="150">
           <template #default="{ row }">
-            {{ formatDateTime(row.detected_at) }}
+            {{ formatDateTime(row.created_at) }}
           </template>
         </el-table-column>
         
-        <el-table-column prop="processing_time" label="处理时间" width="100">
+        <el-table-column prop="execution_time" label="处理时间" width="100">
           <template #default="{ row }">
-            <span v-if="row.processing_time">{{ row.processing_time }}ms</span>
+            <span v-if="row.execution_time">{{ parseFloat(row.execution_time).toFixed(2) }}ms</span>
+            <span v-else-if="row.processing_time">{{ parseFloat(row.processing_time).toFixed(2) }}ms</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
@@ -248,10 +249,14 @@
               {{ getStatusName(currentResult.status) }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="诊断分数">{{ (currentResult.score * 100).toFixed(2) }}%</el-descriptions-item>
-          <el-descriptions-item label="阈值">{{ (currentResult.threshold * 100).toFixed(2) }}%</el-descriptions-item>
-          <el-descriptions-item label="检测时间">{{ formatDateTime(currentResult.detected_at) }}</el-descriptions-item>
-          <el-descriptions-item label="处理时间">{{ currentResult.processing_time }}ms</el-descriptions-item>
+          <el-descriptions-item label="诊断分数">{{ currentResult.score ? currentResult.score.toFixed(2) : '-' }}</el-descriptions-item>
+          <el-descriptions-item label="阈值">{{ currentResult.threshold ? currentResult.threshold.toFixed(2) : '-' }}</el-descriptions-item>
+          <el-descriptions-item label="检测时间">{{ formatDateTime(currentResult.created_at) }}</el-descriptions-item>
+          <el-descriptions-item label="处理时间">
+            <span v-if="currentResult.execution_time">{{ parseFloat(currentResult.execution_time).toFixed(2) }}ms</span>
+            <span v-else-if="currentResult.processing_time">{{ parseFloat(currentResult.processing_time).toFixed(2) }}ms</span>
+            <span v-else>-</span>
+          </el-descriptions-item>
         </el-descriptions>
         
         <div v-if="currentResult.details" class="detail-section">
@@ -268,6 +273,8 @@
             :preview-src-list="[currentResult.image_url]"
             fit="contain"
             style="max-width: 100%; max-height: 400px"
+            :z-index="9999"
+            preview-teleported
           />
         </div>
       </div>
@@ -370,9 +377,26 @@ const getStatusColor = (status: string) => {
 }
 
 const getScoreColor = (score: number) => {
-  if (score >= 0.8) return '#67C23A'
-  if (score >= 0.6) return '#E6A23C'
-  return '#F56C6C'
+  if (score >= 0.8) return '#67c23a'
+  if (score >= 0.6) return '#e6a23c'
+  return '#f56c6c'
+}
+
+const getScoreLevelClass = (level: string) => {
+  switch (level) {
+    case '优秀':
+      return 'level-excellent'
+    case '良好':
+      return 'level-good'
+    case '一般':
+      return 'level-fair'
+    case '较差':
+      return 'level-poor'
+    case '很差':
+      return 'level-very-poor'
+    default:
+      return 'level-unknown'
+  }
 }
 
 // 方法
@@ -392,27 +416,62 @@ const loadResults = async () => {
       }
     })
     
-    const response = await diagnosisResultApi.getResults(params)
-    results.value = response.data || []
-    // 后端返回的是数组，不是分页格式，所以total设置为数组长度
-    total.value = (response.data || []).length
+    try {
+      const response = await diagnosisResultApi.getResults(params)
+      console.log('API响应:', response)
+      
+      // 后端返回的是DiagnosisResultListResponse格式，数据在results字段中
+      const responseData = response.data
+      
+      if (responseData && responseData.results && Array.isArray(responseData.results)) {
+        // 验证每个元素
+        results.value = responseData.results.filter(item => 
+          item && typeof item === 'object' && item.id !== undefined
+        )
+        total.value = responseData.total || 0
+        console.log('成功加载数据，条数:', results.value.length)
+      } else if (Array.isArray(responseData)) {
+        // 兼容旧格式：直接返回数组
+        results.value = responseData.filter(item => 
+          item && typeof item === 'object' && item.id !== undefined
+        )
+        total.value = results.value.length
+        console.log('兼容格式加载数据，条数:', results.value.length)
+      } else {
+        console.warn('API返回的数据格式不正确:', responseData)
+        results.value = []
+        total.value = 0
+      }
+    } catch (error) {
+      console.error('加载诊断结果失败:', error)
+      results.value = []
+      total.value = 0
+      // 如果是401错误，可能是认证问题
+      if (error.response?.status === 401) {
+        console.error('认证失败，可能需要重新登录')
+      }
+    }
     
     // 更新统计数据
     updateStats()
   } catch (error) {
     console.error('加载诊断结果失败:', error)
     ElMessage.error('加载诊断结果失败')
+    results.value = []
   } finally {
     loading.value = false
   }
 }
 
 const updateStats = () => {
+  // 确保results.value是数组
+  const resultsArray = Array.isArray(results.value) ? results.value : []
+  
   stats.value = {
-    normal_count: results.value.filter(r => r.status === 'normal').length,
-    warning_count: results.value.filter(r => r.status === 'warning').length,
-    abnormal_count: results.value.filter(r => r.status === 'abnormal').length,
-    error_count: results.value.filter(r => r.status === 'error').length
+    normal_count: resultsArray.filter(r => r && r.status === 'normal').length,
+    warning_count: resultsArray.filter(r => r && r.status === 'warning').length,
+    abnormal_count: resultsArray.filter(r => r && r.status === 'abnormal').length,
+    error_count: resultsArray.filter(r => r && r.status === 'error').length
   }
 }
 
@@ -601,13 +660,65 @@ onMounted(() => {
 .score-display {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 2px;
 }
 
-.score-text {
+.score-value {
+  font-size: 16px;
+  font-weight: bold;
+  color: #333;
+}
+
+.score-level {
   font-size: 12px;
-  text-align: center;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-weight: 500;
+}
+
+.level-excellent {
+  background-color: #f0f9ff;
+  color: #67c23a;
+  border: 1px solid #67c23a;
+}
+
+.level-good {
+  background-color: #fefce8;
+  color: #e6a23c;
+  border: 1px solid #e6a23c;
+}
+
+.level-fair {
+  background-color: #fef3c7;
+  color: #d97706;
+  border: 1px solid #d97706;
+}
+
+.level-poor {
+  background-color: #fef2f2;
+  color: #f56c6c;
+  border: 1px solid #f56c6c;
+}
+
+.level-very-poor {
+  background-color: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #dc2626;
+}
+
+.level-unknown {
+  background-color: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+}
+
+.score-description {
+  font-size: 10px;
+  color: #666;
+  text-align: center;
+  max-width: 120px;
+  line-height: 1.2;
 }
 
 .threshold-info {

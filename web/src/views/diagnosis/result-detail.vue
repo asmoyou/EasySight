@@ -61,7 +61,7 @@
           <el-col :span="8">
             <div class="info-item">
               <label>执行时间：</label>
-              <span>{{ result.execution_time ? `${result.execution_time}ms` : '-' }}</span>
+              <span>{{ result.execution_time ? `${parseFloat(result.execution_time).toFixed(2)}ms` : '-' }}</span>
             </div>
           </el-col>
           <el-col :span="8">

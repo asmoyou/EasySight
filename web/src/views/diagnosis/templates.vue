@@ -66,8 +66,14 @@
         <div class="card-header">
           <div class="template-info">
             <h3 class="template-name">{{ template.name }}</h3>
-            <el-tag :type="getDiagnosisTypeColor(template.diagnosis_type)" size="small">
-              {{ getDiagnosisTypeName(template.diagnosis_type) }}
+            <el-tag 
+              v-for="type in template.diagnosis_types" 
+              :key="type" 
+              :type="getDiagnosisTypeColor(type)" 
+              size="small"
+              style="margin-right: 4px"
+            >
+              {{ getDiagnosisTypeName(type) }}
             </el-tag>
           </div>
           <div class="template-actions">
@@ -83,17 +89,17 @@
           <p class="template-description">{{ template.description || '暂无描述' }}</p>
           
           <div class="template-config">
-            <div class="config-item" v-if="template.config.threshold !== undefined">
+            <div class="config-item" v-if="template.default_config?.threshold !== undefined">
               <span class="config-label">阈值:</span>
-              <span class="config-value">{{ (template.config.threshold * 100).toFixed(1) }}%</span>
+              <span class="config-value">{{ (template.default_config.threshold * 100).toFixed(1) }}%</span>
             </div>
-            <div class="config-item" v-if="template.config.sensitivity !== undefined">
+            <div class="config-item" v-if="template.default_config?.sensitivity !== undefined">
               <span class="config-label">灵敏度:</span>
-              <span class="config-value">{{ template.config.sensitivity }}</span>
+              <span class="config-value">{{ template.default_config.sensitivity }}</span>
             </div>
-            <div class="config-item" v-if="template.config.sample_interval !== undefined">
+            <div class="config-item" v-if="template.default_config?.sample_interval !== undefined">
               <span class="config-label">采样间隔:</span>
-              <span class="config-value">{{ template.config.sample_interval }}s</span>
+              <span class="config-value">{{ template.default_config.sample_interval }}s</span>
             </div>
           </div>
           
@@ -286,8 +292,13 @@
         <el-descriptions :column="2" border>
           <el-descriptions-item label="模板名称">{{ currentTemplate.name }}</el-descriptions-item>
           <el-descriptions-item label="诊断类型">
-            <el-tag :type="getDiagnosisTypeColor(currentTemplate.diagnosis_type)">
-              {{ getDiagnosisTypeName(currentTemplate.diagnosis_type) }}
+            <el-tag 
+              v-for="type in currentTemplate.diagnosis_types" 
+              :key="type" 
+              :type="getDiagnosisTypeColor(type)"
+              style="margin-right: 4px"
+            >
+              {{ getDiagnosisTypeName(type) }}
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="启用状态">
@@ -310,14 +321,14 @@
         <div class="config-section">
           <h4>诊断配置</h4>
           <el-card>
-            <pre>{{ JSON.stringify(currentTemplate.config, null, 2) }}</pre>
+            <pre>{{ JSON.stringify(currentTemplate.default_config, null, 2) }}</pre>
           </el-card>
         </div>
         
-        <div class="alarm-config-section" v-if="currentTemplate.alarm_config">
+        <div class="alarm-config-section" v-if="currentTemplate.threshold_config">
           <h4>告警配置</h4>
           <el-card>
-            <pre>{{ JSON.stringify(currentTemplate.alarm_config, null, 2) }}</pre>
+            <pre>{{ JSON.stringify(currentTemplate.threshold_config, null, 2) }}</pre>
           </el-card>
         </div>
       </div>
@@ -517,18 +528,18 @@ const handleEdit = (template: DiagnosisTemplate) => {
   currentTemplate.value = template
   formData.value = {
     name: template.name,
-    diagnosis_type: template.diagnosis_type,
+    diagnosis_type: template.diagnosis_types?.[0] || DiagnosisType.BRIGHTNESS,  // 取第一个诊断类型
     description: template.description,
-    config: { ...template.config_template },  // config_template -> config
+    config: { ...template.default_config },  // default_config -> config
     alarm_config: { ...template.threshold_config },  // threshold_config -> alarm_config
     is_active: template.is_active
   }
   
   // 填充配置表单
-  if (template.config_template) {
-    Object.assign(configForm.value, template.config_template)
-    if (template.config_template.threshold) {
-      thresholdPercent.value = Math.round(template.config_template.threshold * 100)
+  if (template.default_config) {
+    Object.assign(configForm.value, template.default_config)
+    if (template.default_config.threshold) {
+      thresholdPercent.value = Math.round(template.default_config.threshold * 100)
     }
   }
   
@@ -549,23 +560,23 @@ const handleCopy = (template: DiagnosisTemplate) => {
   currentTemplate.value = null
   formData.value = {
     name: template.name + ' - 副本',
-    diagnosis_type: template.diagnosis_type,
+    diagnosis_type: template.diagnosis_types?.[0] || DiagnosisType.BRIGHTNESS,  // 取第一个诊断类型
     description: template.description,
-    config: { ...template.config },
-    alarm_config: { ...template.alarm_config },
+    config: { ...template.default_config },
+    alarm_config: { ...template.threshold_config },
     is_active: true
   }
   
   // 填充配置表单
-  if (template.config) {
-    Object.assign(configForm.value, template.config)
-    if (template.config.threshold) {
-      thresholdPercent.value = Math.round(template.config.threshold * 100)
+  if (template.default_config) {
+    Object.assign(configForm.value, template.default_config)
+    if (template.default_config.threshold) {
+      thresholdPercent.value = Math.round(template.default_config.threshold * 100)
     }
   }
   
-  if (template.alarm_config) {
-    Object.assign(alarmConfig.value, template.alarm_config)
+  if (template.threshold_config) {
+    Object.assign(alarmConfig.value, template.threshold_config)
   }
   
   dialogVisible.value = true

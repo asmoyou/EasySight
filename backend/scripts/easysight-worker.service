@@ -1,0 +1,37 @@
+[Unit]
+Description=EasySight Distributed Worker Node
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=easysight
+Group=easysight
+WorkingDirectory=/opt/easysight/backend
+Environment=PYTHONPATH=/opt/easysight/backend
+EnvironmentFile=-/etc/easysight/worker.env
+ExecStart=/opt/easysight/venv/bin/python start_worker.py --config /etc/easysight/worker.env
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=30
+
+# 日志配置
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=easysight-worker
+
+# 安全配置
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/easysight /var/lib/easysight
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

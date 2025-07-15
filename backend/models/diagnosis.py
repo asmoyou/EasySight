@@ -39,6 +39,9 @@ class DiagnosisTask(Base):
     name = Column(String(100), nullable=False, comment="任务名称")
     description = Column(Text, comment="任务描述")
     
+    # 模板关联
+    template_id = Column(Integer, comment="诊断模板ID")
+    
     # 诊断配置 - 匹配实际数据库结构
     camera_ids = Column(JSON, default=list, comment="摄像头ID列表")
     camera_groups = Column(JSON, default=list, comment="摄像头组列表")
@@ -64,6 +67,87 @@ class DiagnosisTask(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+
+class AlarmRule(Base):
+    """告警规则模型"""
+    __tablename__ = "alarm_rules"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, comment="规则名称")
+    description = Column(Text, comment="规则描述")
+    
+    # 规则配置
+    diagnosis_types = Column(JSON, default=list, comment="适用的诊断类型")
+    camera_ids = Column(JSON, default=list, comment="适用的摄像头ID列表")
+    camera_groups = Column(JSON, default=list, comment="适用的摄像头组")
+    
+    # 触发条件
+    severity_levels = Column(JSON, default=list, comment="触发的严重程度级别")
+    threshold_config = Column(JSON, default=dict, comment="阈值配置")
+    frequency_limit = Column(Integer, default=0, comment="频率限制(分钟内最多触发次数)")
+    
+    # 通知配置
+    notification_channels = Column(JSON, default=list, comment="通知渠道")
+    notification_template = Column(Text, comment="通知模板")
+    
+    # 状态
+    is_enabled = Column(Boolean, default=True, comment="是否启用")
+    priority = Column(Integer, default=1, comment="优先级")
+    
+    # 统计信息
+    trigger_count = Column(Integer, default=0, comment="触发次数")
+    last_triggered_at = Column(DateTime(timezone=True), comment="最后触发时间")
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    created_by = Column(String(50), comment="创建人ID")
+
+class NotificationChannel(Base):
+    """通知渠道模型"""
+    __tablename__ = "notification_channels"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, comment="渠道名称")
+    type = Column(String(50), nullable=False, comment="渠道类型: email, sms, webhook, dingtalk, wechat")
+    description = Column(Text, comment="渠道描述")
+    
+    # 配置信息
+    config = Column(JSON, default=dict, comment="渠道配置")
+    
+    # 状态
+    is_enabled = Column(Boolean, default=True, comment="是否启用")
+    
+    # 统计信息
+    send_count = Column(Integer, default=0, comment="发送次数")
+    success_count = Column(Integer, default=0, comment="成功次数")
+    last_used_at = Column(DateTime(timezone=True), comment="最后使用时间")
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    created_by = Column(String(50), comment="创建人ID")
+
+class NotificationLog(Base):
+    """通知日志模型"""
+    __tablename__ = "notification_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    alarm_id = Column(Integer, comment="告警ID")
+    rule_id = Column(Integer, comment="规则ID")
+    channel_id = Column(Integer, comment="通知渠道ID")
+    
+    # 通知信息
+    title = Column(String(200), comment="通知标题")
+    content = Column(Text, comment="通知内容")
+    recipients = Column(JSON, default=list, comment="接收人列表")
+    
+    # 发送状态
+    status = Column(String(20), default="pending", comment="发送状态: pending, sent, failed")
+    error_message = Column(Text, comment="错误信息")
+    retry_count = Column(Integer, default=0, comment="重试次数")
+    
+    # 时间信息
+    sent_at = Column(DateTime(timezone=True), comment="发送时间")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     created_by = Column(String(50), comment="创建人ID")
     
     def __repr__(self):

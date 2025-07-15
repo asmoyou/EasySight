@@ -130,7 +130,7 @@ services:
       - 1935:1935
       - 8060:8060
       - 554:554
-      - 8000:8000/udp
+      # - 8000:8000/udp
     volumes:
       - ./zlmediakitServer/mediaworker/config.ini:/opt/media/conf/config.ini
       - ./zlmediakitServer/mediaworker/www:/opt/media/bin/www

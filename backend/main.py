@@ -4,10 +4,11 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from contextlib import asynccontextmanager
 import uvicorn
 import asyncio
-from routers import auth, users, cameras, ai_algorithms, events, system, diagnosis, files, messages
+from routers import auth, users, cameras, ai_algorithms, events, system, diagnosis, files, messages, alarm_rules, notification_channels
 from database import init_db
 from config import settings
 from utils.camera_monitor import camera_monitor
+from diagnosis.scheduler import task_scheduler
 
 # 应用生命周期管理
 @asynccontextmanager
@@ -15,12 +16,25 @@ async def lifespan(app: FastAPI):
     # 启动时初始化数据库
     await init_db()
     
+    # 初始化诊断调度器
+    try:
+        # 启动调度器
+        await task_scheduler.start()
+        print("诊断任务调度器已启动")
+    except Exception as e:
+        print(f"诊断调度器启动失败: {e}")
+    
     # 暂时禁用摄像头监控服务以避免启动问题
     # asyncio.create_task(periodic_camera_monitor())
     
     yield
+    
     # 关闭时的清理工作
-    pass
+    try:
+        await task_scheduler.stop()
+        print("诊断调度器已关闭")
+    except Exception as e:
+        print(f"诊断调度器关闭失败: {e}")
 
 async def periodic_camera_monitor():
     """定期监控摄像头状态"""
@@ -70,6 +84,10 @@ app.include_router(roles_router, prefix="/api/v1/roles", tags=["角色管理"])
 
 # 注册文件管理路由
 app.include_router(files.router, prefix="/api/v1/files", tags=["文件管理"])
+
+# 注册告警规则和通知渠道路由
+app.include_router(alarm_rules.router, tags=["告警规则"])
+app.include_router(notification_channels.router, tags=["通知渠道"])
 
 @app.get("/")
 async def root():
