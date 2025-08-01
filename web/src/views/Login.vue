@@ -66,7 +66,7 @@
       
       <div class="login-footer">
         <p class="copyright">
-          © 2024 EasySight. All rights reserved.
+          © 2025 EasySight. All rights reserved.
         </p>
       </div>
     </div>

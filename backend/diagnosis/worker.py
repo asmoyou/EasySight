@@ -3,7 +3,7 @@ import logging
 import json
 import time
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
@@ -314,7 +314,7 @@ class DistributedWorkerNode:
         # 例如通过HTTP API或消息队列
         heartbeat_data = {
             'node_id': self.node_id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'status': self.get_node_status()
         }
         

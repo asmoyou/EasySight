@@ -49,37 +49,37 @@ export interface MarkReadRequest {
 export const messagesApi = {
   // 获取消息列表
   getMessages(params: MessageListParams = {}) {
-    return request.get<ApiResponse<MessageListResponse>>('/api/v1/messages/', { params })
+    return request.get<ApiResponse<MessageListResponse>>('/v1/messages/', { params })
   },
 
   // 获取未读消息数量
   getUnreadCount() {
-    return request.get<ApiResponse<{ unread_count: number }>>('/api/v1/messages/unread-count')
+    return request.get<ApiResponse<{ unread_count: number }>>('/v1/messages/unread-count')
   },
 
   // 创建消息
   createMessage(data: MessageCreate) {
-    return request.post<ApiResponse<Message>>('/api/v1/messages/', data)
+    return request.post<ApiResponse<Message>>('/v1/messages/', data)
   },
 
   // 标记消息为已读
   markMessagesRead(data: MarkReadRequest) {
-    return request.put<ApiResponse<{ message: string }>>('/api/v1/messages/mark-read', data)
+    return request.put<ApiResponse<{ message: string }>>('/v1/messages/mark-read', data)
   },
 
   // 标记所有消息为已读
   markAllMessagesRead() {
-    return request.put<ApiResponse<{ message: string }>>('/api/v1/messages/mark-all-read')
+    return request.put<ApiResponse<{ message: string }>>('/v1/messages/mark-all-read')
   },
 
   // 获取单条消息详情
   getMessage(id: number) {
-    return request.get<ApiResponse<Message>>(`/api/v1/messages/${id}`)
+    return request.get<ApiResponse<Message>>(`/v1/messages/${id}`)
   },
 
   // 删除消息
   deleteMessage(id: number) {
-    return request.delete<ApiResponse<{ message: string }>>(`/api/v1/messages/${id}`)
+    return request.delete<ApiResponse<{ message: string }>>(`/v1/messages/${id}`)
   }
 }
 

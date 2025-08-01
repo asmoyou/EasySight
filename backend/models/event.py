@@ -27,11 +27,11 @@ class EventLevel(enum.Enum):
     CRITICAL = "critical"  # 严重
 
 class EventStatus(enum.Enum):
-    PENDING = "pending"  # 待处理
-    PROCESSING = "processing"  # 处理中
-    RESOLVED = "resolved"  # 已解决
-    IGNORED = "ignored"  # 已忽略
-    FALSE_ALARM = "false_alarm"  # 误报
+    PENDING = "PENDING"  # 待处理
+    PROCESSING = "PROCESSING"  # 处理中
+    RESOLVED = "RESOLVED"  # 已解决
+    FALSE_ALARM = "FALSE_ALARM"  # 误报
+    IGNORED = "IGNORED"  # 已忽略
 
 class Event(Base):
     __tablename__ = "events"

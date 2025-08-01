@@ -26,27 +26,27 @@ export interface GroupListResponse {
 
 // 获取分组列表
 export function getGroups() {
-  return request.get('/api/v1/cameras/groups/')
+  return request.get('/v1/cameras/groups/')
 }
 
 // 创建分组
 export function createGroup(data: GroupForm) {
-  return request.post('/api/v1/cameras/groups/', data)
+  return request.post('/v1/cameras/groups/', data)
 }
 
 // 更新分组
 export function updateGroup(id: number, data: Partial<GroupForm>) {
-  return request.put(`/api/v1/cameras/groups/${id}`, data)
+  return request.put(`/v1/cameras/groups/${id}`, data)
 }
 
 // 删除分组
 export function deleteGroup(id: number) {
-  return request.delete(`/api/v1/cameras/groups/${id}`)
+  return request.delete(`/v1/cameras/groups/${id}`)
 }
 
 // 获取分组下的摄像头列表
 export function getGroupCameras(groupId: number, page = 1, pageSize = 20) {
-  return request.get(`/api/v1/cameras/groups/${groupId}/cameras`, {
+  return request.get(`/v1/cameras/groups/${groupId}/cameras`, {
     params: {
       page,
       page_size: pageSize

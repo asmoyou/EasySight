@@ -84,59 +84,59 @@ class RolesApi {
       page: number
       page_size: number
       pages: number
-    }>>('/api/v1/roles/', { params })
+    }>>('/v1/roles/', { params })
   }
 
   // 创建角色
   createRole(data: RoleCreate) {
-    return request.post<ApiResponse<Role>>('/api/v1/roles/', data)
+    return request.post<ApiResponse<Role>>('/v1/roles/', data)
   }
 
   // 获取角色详情
   getRole(id: number) {
-    return request.get<ApiResponse<Role>>(`/api/v1/roles/${id}`)
+    return request.get<ApiResponse<Role>>(`/v1/roles/${id}`)
   }
 
   // 更新角色
   updateRole(id: number, data: RoleUpdate) {
-    return request.put<ApiResponse<Role>>(`/api/v1/roles/${id}`, data)
+    return request.put<ApiResponse<Role>>(`/v1/roles/${id}`, data)
   }
 
   // 删除角色
   deleteRole(id: number) {
-    return request.delete<ApiResponse<any>>(`/api/v1/roles/${id}`)
+    return request.delete<ApiResponse<any>>(`/v1/roles/${id}`)
   }
 
   // 获取权限列表
   getPermissions(params?: PermissionQuery) {
-    return request.get<ApiResponse<Permission[]>>('/api/v1/roles/permissions/', { params })
+    return request.get<ApiResponse<Permission[]>>('/v1/roles/permissions/', { params })
   }
 
   // 创建权限
   createPermission(data: PermissionCreate) {
-    return request.post<ApiResponse<Permission>>('/api/v1/roles/permissions/', data)
+    return request.post<ApiResponse<Permission>>('/v1/roles/permissions/', data)
   }
 
   // 分配用户角色
   assignUserRoles(data: UserRoleAssign) {
-    return request.post<ApiResponse<any>>('/api/v1/roles/assign', data)
+    return request.post<ApiResponse<any>>('/v1/roles/assign', data)
   }
 
   // 获取用户角色
   getUserRoles(userId: number) {
-    return request.get<ApiResponse<Role[]>>(`/api/v1/roles/user/${userId}/roles`)
+    return request.get<ApiResponse<Role[]>>(`/v1/roles/user/${userId}/roles`)
   }
 
   // 批量删除角色
   batchDeleteRoles(roleIds: number[]) {
-    return request.delete<ApiResponse<any>>('/api/v1/roles/batch', {
+    return request.delete<ApiResponse<any>>('/v1/roles/batch', {
       data: { role_ids: roleIds }
     })
   }
 
   // 批量更新角色状态
   batchUpdateRoleStatus(roleIds: number[], isActive: boolean) {
-    return request.put<ApiResponse<any>>('/api/v1/roles/batch/status', {
+    return request.put<ApiResponse<any>>('/v1/roles/batch/status', {
       role_ids: roleIds,
       is_active: isActive
     })

@@ -356,23 +356,9 @@ import {
   ChatDotRound, Phone, Link, Monitor, ChatLineRound
 } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
+import { notificationChannelsApi, type NotificationChannel, type NotificationChannelCreate, type NotificationChannelUpdate } from '@/api/notification-channels'
 
 // 类型定义
-interface NotificationConfig {
-  id: number
-  name: string
-  description: string
-  type: 'email' | 'sms' | 'wechat' | 'dingtalk' | 'webhook'
-  config: Record<string, any>
-  is_enabled: boolean
-  stats?: {
-    sent_today: number
-    success_rate: number
-  }
-  created_at: string
-  updated_at: string
-}
-
 interface NotificationForm {
   name: string
   description: string
@@ -383,12 +369,12 @@ interface NotificationForm {
 
 // 响应式数据
 const loading = ref(false)
-const notifications = ref<NotificationConfig[]>([])
+const notifications = ref<NotificationChannel[]>([])
 const dialogVisible = ref(false)
 const testDialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref<FormInstance>()
-const currentNotification = ref<NotificationConfig | null>(null)
+const currentNotification = ref<NotificationChannel | null>(null)
 
 // 统计数据
 const stats = reactive({
@@ -466,39 +452,47 @@ const pagination = reactive({
 const loadNotifications = async () => {
   loading.value = true
   try {
-    // 模拟数据
-    const mockNotifications: NotificationConfig[] = [
+    const response = await notificationChannelsApi.getNotificationChannels({
+      page: pagination.page,
+      page_size: pagination.pageSize,
+      type: searchForm.type || undefined,
+      is_enabled: searchForm.is_enabled
+    })
+    
+    notifications.value = response.data || response as any
+    pagination.total = response.total || (response as any).length || 0
+    
+    // 加载统计数据
+    try {
+      const statsResponse = await notificationChannelsApi.getNotificationStats()
+      Object.assign(stats, statsResponse)
+    } catch (statsError) {
+      console.error('加载统计数据失败:', statsError)
+    }
+  } catch (error) {
+    console.error('加载通知配置失败:', error)
+    ElMessage.error('加载通知配置失败')
+    
+    // 备用模拟数据
+    const mockNotifications: NotificationChannel[] = [
       {
         id: 1,
         name: '系统邮件通知',
         description: '用于发送系统告警邮件',
         type: 'email',
         config: {
-          smtp_host: 'smtp.qq.com',
+          smtp_server: 'smtp.qq.com',
           smtp_port: 587,
           username: 'system@example.com',
           password: '***',
-          from_email: 'system@example.com'
+          recipients: ['admin@example.com']
         },
         is_enabled: true,
+        send_count: 150,
+        success_count: 147,
         stats: { sent_today: 15, success_rate: 98 },
         created_at: '2024-01-15 10:00:00',
         updated_at: '2024-01-15 10:00:00'
-      },
-      {
-        id: 2,
-        name: '钉钉告警机器人',
-        description: '发送紧急告警到钉钉群',
-        type: 'dingtalk',
-        config: {
-          robot_name: '告警机器人',
-          webhook_url: 'https://oapi.dingtalk.com/robot/send?access_token=***',
-          secret: '***'
-        },
-        is_enabled: true,
-        stats: { sent_today: 8, success_rate: 100 },
-        created_at: '2024-01-15 09:30:00',
-        updated_at: '2024-01-15 09:30:00'
       }
     ]
     
@@ -510,8 +504,6 @@ const loadNotifications = async () => {
     stats.sent_today = mockNotifications.reduce((sum, n) => sum + (n.stats?.sent_today || 0), 0)
     stats.success_rate = Math.round(mockNotifications.reduce((sum, n) => sum + (n.stats?.success_rate || 0), 0) / mockNotifications.length)
     stats.total_count = mockNotifications.length
-  } catch (error) {
-    ElMessage.error('加载通知配置失败')
   } finally {
     loading.value = false
   }
@@ -547,7 +539,7 @@ const showCreateDialog = () => {
   dialogVisible.value = true
 }
 
-const editNotification = (notification: NotificationConfig) => {
+const editNotification = (notification: NotificationChannel) => {
   isEdit.value = true
   Object.assign(formData, {
     name: notification.name,
@@ -559,33 +551,43 @@ const editNotification = (notification: NotificationConfig) => {
   dialogVisible.value = true
 }
 
-const toggleNotification = async (notification: NotificationConfig) => {
+const toggleNotification = async (notification: NotificationChannel) => {
   try {
+    await notificationChannelsApi.toggleNotificationChannel(notification.id)
     ElMessage.success(`通知配置已${notification.is_enabled ? '启用' : '禁用'}`)
   } catch (error) {
+    console.error('切换通知渠道状态失败:', error)
     ElMessage.error('操作失败')
     notification.is_enabled = !notification.is_enabled
   }
 }
 
-const testNotification = (notification: NotificationConfig) => {
+const testNotification = (notification: NotificationChannel) => {
   currentNotification.value = notification
   testForm.title = '测试通知'
-  testForm.content = '这是一条测试通知消息'
+  testForm.content = `这是一条来自 ${notification.name} 的测试消息，发送时间：${new Date().toLocaleString()}`
   testForm.recipient = ''
   testDialogVisible.value = true
 }
 
 const sendTestNotification = async () => {
+  if (!currentNotification.value) return
+  
   try {
+    await notificationChannelsApi.testNotificationChannel(currentNotification.value.id, {
+      title: testForm.title,
+      content: testForm.content,
+      recipient: testForm.recipient
+    })
     ElMessage.success('测试通知发送成功')
     testDialogVisible.value = false
   } catch (error) {
+    console.error('测试通知发送失败:', error)
     ElMessage.error('测试通知发送失败')
   }
 }
 
-const deleteNotification = async (notification: NotificationConfig) => {
+const deleteNotification = async (notification: NotificationChannel) => {
   try {
     await ElMessageBox.confirm(
       `确定要删除通知配置 "${notification.name}" 吗？`,
@@ -597,10 +599,20 @@ const deleteNotification = async (notification: NotificationConfig) => {
       }
     )
     
+    await notificationChannelsApi.deleteNotificationChannel(notification.id)
+    
+    const index = notifications.value.findIndex(n => n.id === notification.id)
+    if (index > -1) {
+      notifications.value.splice(index, 1)
+      pagination.total--
+    }
+    
     ElMessage.success('删除成功')
-    loadNotifications()
   } catch (error) {
-    // 用户取消删除
+    if (error !== 'cancel') {
+      console.error('删除通知渠道失败:', error)
+      ElMessage.error('删除失败')
+    }
   }
 }
 
@@ -610,16 +622,19 @@ const submitForm = async () => {
   try {
     await formRef.value.validate()
     
-    if (isEdit.value) {
+    if (isEdit.value && currentNotification.value) {
+      await notificationChannelsApi.updateNotificationChannel(currentNotification.value.id, formData)
       ElMessage.success('更新成功')
     } else {
+      await notificationChannelsApi.createNotificationChannel(formData)
       ElMessage.success('创建成功')
     }
     
     dialogVisible.value = false
     loadNotifications()
   } catch (error) {
-    ElMessage.error('表单验证失败')
+    console.error('提交表单失败:', error)
+    ElMessage.error(isEdit.value ? '更新失败' : '创建失败')
   }
 }
 

@@ -1,14 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from minio import Minio
 from minio.error import S3Error
-from typing import Optional
+from typing import Optional, Dict, Any
 import logging
 
 from database import get_db, get_minio
 from models.user import User
+from models.ai_algorithm import AIAlgorithm
 from routers.auth import get_current_user
 from utils.file_upload import get_file_upload_service, FileUploadService
 from config import settings
@@ -130,3 +132,91 @@ async def delete_avatar(
     except Exception as e:
         logger.error(f"Avatar deletion failed: {e}")
         raise HTTPException(status_code=500, detail="头像删除失败")
+
+
+@router.post("/upload/algorithm-package")
+async def upload_algorithm_package(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    file_service: FileUploadService = Depends(get_file_upload_service)
+) -> Dict[str, Any]:
+    """上传算法包"""
+    try:
+        result = await file_service.upload_algorithm_package(file, current_user.id)
+        return {
+            "message": "算法包上传成功",
+            "data": result
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Algorithm package upload error: {e}")
+        raise HTTPException(status_code=500, detail="算法包上传失败")
+
+
+@router.post("/upload/model")
+async def upload_model_file(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    file_service: FileUploadService = Depends(get_file_upload_service)
+) -> Dict[str, Any]:
+    """上传模型文件"""
+    try:
+        result = await file_service.upload_model_file(file, current_user.id)
+        return {
+            "message": "模型文件上传成功",
+            "data": result
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Model file upload error: {e}")
+        raise HTTPException(status_code=500, detail="模型文件上传失败")
+
+
+@router.post("/install/algorithm-package")
+async def install_algorithm_package(
+    package_data: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """安装算法包"""
+    try:
+        # 从包数据中提取信息
+        package_info = package_data.get("package_info", {})
+        file_url = package_data.get("file_url", "")
+        
+        # 创建算法记录
+        algorithm = AIAlgorithm(
+            name=package_info.get("name", ""),
+            version=package_info.get("version", "1.0.0"),
+            type=package_info.get("type", "custom"),
+            description=package_info.get("description", ""),
+            author=package_info.get("author", current_user.username),
+            tags=package_info.get("tags", []),
+            config_schema=package_info.get("config_schema", {}),
+            package_url=file_url,
+            entry_point=package_info.get("entry_point", "main.py"),
+            dependencies=package_info.get("dependencies", []),
+            created_by=current_user.id,
+            is_active=True
+        )
+        
+        db.add(algorithm)
+        db.commit()
+        db.refresh(algorithm)
+        
+        return {
+            "message": "算法包安装成功",
+            "data": {
+                "algorithm_id": algorithm.id,
+                "name": algorithm.name,
+                "version": algorithm.version,
+                "type": algorithm.type
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Algorithm package installation error: {e}")
+        raise HTTPException(status_code=500, detail="算法包安装失败")

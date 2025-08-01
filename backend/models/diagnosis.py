@@ -26,11 +26,11 @@ class DiagnosisStatus(enum.Enum):
     CRITICAL = "critical"  # 严重
 
 class TaskStatus(enum.Enum):
-    PENDING = "pending"  # 待执行
-    RUNNING = "running"  # 运行中
-    COMPLETED = "completed"  # 已完成
-    FAILED = "failed"  # 失败
-    CANCELLED = "cancelled"  # 已取消
+    PENDING = "PENDING"  # 待执行
+    RUNNING = "RUNNING"  # 运行中
+    COMPLETED = "COMPLETED"  # 已完成
+    FAILED = "FAILED"  # 失败
+    CANCELLED = "CANCELLED"  # 已取消
 
 class DiagnosisTask(Base):
     __tablename__ = "diagnosis_tasks"
@@ -58,6 +58,7 @@ class DiagnosisTask(Base):
     # 状态信息
     status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, comment="任务状态")
     is_active = Column(Boolean, default=True, comment="是否启用")
+    assigned_worker = Column(String(100), comment="分配的worker节点ID")
     
     # 执行信息 - 匹配实际数据库结构
     last_run_time = Column(DateTime(timezone=True), comment="最后执行时间")
@@ -67,6 +68,7 @@ class DiagnosisTask(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    created_by = Column(String(50), comment="创建人ID")
 
 class AlarmRule(Base):
     """告警规则模型"""

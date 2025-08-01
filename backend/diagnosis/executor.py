@@ -171,6 +171,35 @@ class DiagnosisExecutor:
                     # 获取算法配置
                     algorithm_config = task.diagnosis_config.get(diagnosis_type_str, {})
                     
+                    # 合并阈值配置到算法配置中
+                    if task.threshold_config:
+                        # 将threshold_config中的配置合并到algorithm_config的thresholds字段中
+                        if 'thresholds' not in algorithm_config:
+                            algorithm_config['thresholds'] = {}
+                        
+                        # 合并通用阈值配置
+                        algorithm_config['thresholds'].update(task.threshold_config)
+                        
+                        # 特殊处理：将前端的threshold配置映射到算法期望的参数名
+                        if 'threshold' in task.threshold_config:
+                            threshold_value = task.threshold_config['threshold']
+                            # 根据诊断类型映射到对应的算法参数
+                            if diagnosis_type_str == 'clarity':
+                                # 前端threshold是0-1的小数，需要转换为算法期望的数值
+                                # 假设前端0.8对应算法的80（基于100的比例）
+                                algorithm_config['thresholds']['clarity_min'] = threshold_value * 100
+                            elif diagnosis_type_str == 'brightness':
+                                algorithm_config['thresholds']['brightness_min'] = threshold_value
+                            elif diagnosis_type_str == 'contrast':
+                                algorithm_config['thresholds']['contrast_min'] = threshold_value
+                            elif diagnosis_type_str == 'noise':
+                                algorithm_config['thresholds']['noise_max'] = threshold_value
+                        
+                        # 如果有特定诊断类型的阈值配置，也进行合并
+                        type_specific_config = task.threshold_config.get(diagnosis_type_str, {})
+                        if type_specific_config:
+                            algorithm_config['thresholds'].update(type_specific_config)
+                    
                     # 执行诊断
                     algorithm = get_algorithm(diagnosis_type, algorithm_config)
                     diagnosis_result = algorithm.diagnose(image)

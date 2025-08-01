@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User, LoginForm, LoginResponse } from '@/types/user'
 import { authApi } from '@/api/auth'
-import { getToken, setToken, removeToken, setRefreshToken } from '@/utils/auth'
+import { getToken, setToken, removeToken, setRefreshToken, getRefreshToken } from '@/utils/auth'
 import { ElMessage } from 'element-plus'
 import { tokenManager } from '@/utils/tokenManager'
 
@@ -90,7 +90,14 @@ export const useUserStore = defineStore('user', () => {
   // 刷新token
   const refreshToken = async (): Promise<boolean> => {
     try {
-      const response = await authApi.refreshToken()
+      const currentRefreshToken = getRefreshToken()
+      if (!currentRefreshToken) {
+        console.error('没有找到refresh token')
+        await logout(false)
+        return false
+      }
+      
+      const response = await authApi.refreshToken(currentRefreshToken)
       const { access_token } = response.data
       
       token.value = access_token

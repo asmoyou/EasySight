@@ -112,7 +112,7 @@ class UserLoginLog(Base):
     __tablename__ = "user_login_logs"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False, comment="用户ID")
+    user_id = Column(Integer, nullable=True, comment="用户ID")
     username = Column(String(50), comment="用户名")
     ip_address = Column(String(45), comment="IP地址")
     user_agent = Column(Text, comment="用户代理")

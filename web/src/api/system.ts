@@ -134,12 +134,12 @@ export interface License {
 class SystemApi {
   // 获取系统统计信息
   getSystemStats() {
-    return request.get<ApiResponse<SystemStats>>('/api/v1/system/stats/overview')
+    return request.get<ApiResponse<SystemStats>>('/v1/system/stats/overview')
   }
 
   // 获取系统指标数据
   getSystemMetrics(params?: SystemMetricsQuery) {
-    return request.get<ApiResponse<SystemMetric[]>>('/api/v1/system/metrics/', { params })
+    return request.get<ApiResponse<SystemMetric[]>>('/v1/system/metrics/', { params })
   }
 
   // 获取系统配置列表
@@ -148,27 +148,27 @@ class SystemApi {
     search?: string
     is_public?: boolean
   }) {
-    return request.get<ApiResponse<SystemConfig[]>>('/api/v1/system/configs/', { params })
+    return request.get<ApiResponse<SystemConfig[]>>('/v1/system/configs/', { params })
   }
 
   // 获取单个系统配置
   getSystemConfig(id: number) {
-    return request.get<ApiResponse<SystemConfig>>(`/api/v1/system/configs/${id}`)
+    return request.get<ApiResponse<SystemConfig>>(`/v1/system/configs/${id}`)
   }
 
   // 创建系统配置
   createSystemConfig(data: SystemConfigCreate) {
-    return request.post<ApiResponse<SystemConfig>>('/api/v1/system/configs/', data)
+    return request.post<ApiResponse<SystemConfig>>('/v1/system/configs/', data)
   }
 
   // 更新系统配置
   updateSystemConfig(id: number, data: SystemConfigUpdate) {
-    return request.put<ApiResponse<SystemConfig>>(`/api/v1/system/configs/${id}`, data)
+    return request.put<ApiResponse<SystemConfig>>(`/v1/system/configs/${id}`, data)
   }
 
   // 删除系统配置
   deleteSystemConfig(id: number) {
-    return request.delete<ApiResponse<null>>(`/api/v1/system/configs/${id}`)
+    return request.delete<ApiResponse<null>>(`/v1/system/configs/${id}`)
   }
 
   // 获取系统日志列表
@@ -179,31 +179,31 @@ class SystemApi {
       page: number
       page_size: number
       pages: number
-    }>>('/api/v1/system/logs/', { params })
+    }>>('/v1/system/logs/', { params })
   }
 
   // 获取许可证信息
   getLicenseInfo() {
-    return request.get<ApiResponse<License>>('/api/v1/system/license/')
+    return request.get<ApiResponse<License>>('/v1/system/license/')
   }
 
   // 验证许可证
   validateLicense(licenseKey: string) {
-    return request.post<ApiResponse<License>>('/api/v1/system/license/validate', {
+    return request.post<ApiResponse<License>>('/v1/system/license/validate', {
       license_key: licenseKey
     })
   }
 
   // 激活许可证
   activateLicense(licenseKey: string) {
-    return request.post<ApiResponse<License>>('/api/v1/system/license/activate', {
+    return request.post<ApiResponse<License>>('/v1/system/license/activate', {
       license_key: licenseKey
     })
   }
 
   // 停用许可证
   deactivateLicense() {
-    return request.post<ApiResponse<null>>('/api/v1/system/license/deactivate')
+    return request.post<ApiResponse<null>>('/v1/system/license/deactivate')
   }
 }
 

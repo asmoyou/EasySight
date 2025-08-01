@@ -4,7 +4,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from contextlib import asynccontextmanager
 import uvicorn
 import asyncio
-from routers import auth, users, cameras, ai_algorithms, events, system, diagnosis, files, messages, alarm_rules, notification_channels
+from routers import auth, users, cameras, ai_algorithms, events, system, diagnosis, files, messages, alarm_rules, notification_channels, dashboard
 from database import init_db
 from config import settings
 from utils.camera_monitor import camera_monitor
@@ -24,8 +24,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"诊断调度器启动失败: {e}")
     
-    # 暂时禁用摄像头监控服务以避免启动问题
-    # asyncio.create_task(periodic_camera_monitor())
+    # 启动摄像头监控服务
+    asyncio.create_task(periodic_camera_monitor())
     
     yield
     
@@ -75,7 +75,11 @@ app.include_router(cameras.router, prefix="/api/v1/cameras", tags=["摄像头管
 app.include_router(ai_algorithms.router, prefix="/api/v1/ai", tags=["AI应用中心"])
 app.include_router(events.router, prefix="/api/v1/events", tags=["事件告警中心"])
 app.include_router(system.router, prefix="/api/v1/system", tags=["系统配置"])
+app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["仪表盘"])
 app.include_router(diagnosis.router, prefix="/api/v1/diagnosis", tags=["智能诊断"])
+# 注册无认证的Worker API路由
+from routers.diagnosis import no_auth_router
+app.include_router(no_auth_router, prefix="/api/v1/diagnosis/worker", tags=["Worker无认证API"])
 app.include_router(messages.router, tags=["消息管理"])
 
 # 导入角色管理路由

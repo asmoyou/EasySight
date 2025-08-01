@@ -9,8 +9,8 @@ import router from '@/router'
 
 // 创建axios实例
 const service: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '',
-  timeout: 30000,
+  baseURL: '/api',
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json'
   }
@@ -21,28 +21,28 @@ service.interceptors.request.use(
   async (config: AxiosRequestConfig) => {
     // 添加认证token（logout和refresh接口不需要预检查）
     const token = getToken()
-    if (token && config.headers && !config.url?.includes('/api/v1/auth/logout') && !config.url?.includes('/api/v1/auth/refresh')) {
-       // 检查token是否即将过期，如果是则先刷新
-       if (TOKEN_CONFIG.CHECK_BEFORE_REQUEST && isTokenExpiringSoon(token)) {
-         if (TOKEN_CONFIG.ENABLE_CONSOLE_LOG) {
-           console.log('请求前检测到token即将过期，尝试刷新')
-         }
-         try {
-           await tokenManager.checkAndRefreshToken()
-           // 刷新后重新获取token
-           const newToken = getToken()
-           if (newToken) {
-             config.headers.Authorization = `Bearer ${newToken}`
-           }
-         } catch (error) {
-           console.error('请求前刷新token失败:', error)
-           // 刷新失败，仍然使用原token，让后续的401处理
-           config.headers.Authorization = `Bearer ${token}`
-         }
-       } else {
-         config.headers.Authorization = `Bearer ${token}`
-       }
-     }
+    if (token && config.headers && !config.url?.includes('/v1/auth/logout') && !config.url?.includes('/v1/auth/refresh')) {
+      // 检查token是否即将过期，如果是则先刷新
+      if (TOKEN_CONFIG.CHECK_BEFORE_REQUEST && isTokenExpiringSoon(token)) {
+        if (TOKEN_CONFIG.ENABLE_CONSOLE_LOG) {
+          console.log('请求前检测到token即将过期，尝试刷新')
+        }
+        try {
+          await tokenManager.checkAndRefreshToken()
+          // 刷新后重新获取token
+          const newToken = getToken()
+          if (newToken) {
+            config.headers.Authorization = `Bearer ${newToken}`
+          }
+        } catch (error) {
+          console.error('请求前刷新token失败:', error)
+          // 刷新失败，仍然使用原token，让后续的401处理
+          config.headers.Authorization = `Bearer ${token}`
+        }
+      } else {
+        config.headers.Authorization = `Bearer ${token}`
+      }
+    }
     
     return config
   },
@@ -84,9 +84,9 @@ service.interceptors.response.use(
     switch (status) {
       case 401:
         // 如果是登录请求失败，显示错误消息
-        if (error.config?.url?.includes('/api/v1/auth/login')) {
+        if (error.config?.url?.includes('/v1/auth/login')) {
           ElMessage.error(data?.detail || '用户名或密码错误')
-        } else if (error.config?.url?.includes('/api/v1/auth/logout')) {
+        } else if (error.config?.url?.includes('/v1/auth/logout')) {
           // logout接口401错误，直接清除本地数据并跳转
           const userStore = useUserStore()
           userStore.logout(false).then(() => {
@@ -154,7 +154,7 @@ const handleUnauthorized = async (config?: any) => {
   const userStore = useUserStore()
   
   // 如果是登录请求失败，不进行token刷新和弹窗处理
-  if (config?.url?.includes('/api/v1/auth/login')) {
+  if (config?.url?.includes('/v1/auth/login')) {
     return Promise.reject(new Error('登录失败'))
   }
   

@@ -192,37 +192,37 @@ export const diagnosisTaskApi = {
     is_scheduled?: boolean
     target_type?: string
   }): Promise<ApiResponse<DiagnosisTask[]>> => {
-    return request.get('/api/v1/diagnosis/tasks/', { params })
+    return request.get('/v1/diagnosis/tasks/', { params })
   },
 
   // 获取任务详情
   getTask: (id: number): Promise<ApiResponse<DiagnosisTask>> => {
-    return request.get(`/api/v1/diagnosis/tasks/${id}`)
+    return request.get(`/v1/diagnosis/tasks/${id}`)
   },
 
   // 创建任务
   createTask: (data: DiagnosisTaskCreate): Promise<ApiResponse<DiagnosisTask>> => {
-    return request.post('/api/v1/diagnosis/tasks/', data)
+    return request.post('/v1/diagnosis/tasks/', data)
   },
 
   // 更新任务
   updateTask: (id: number, data: DiagnosisTaskUpdate): Promise<ApiResponse<DiagnosisTask>> => {
-    return request.put(`/api/v1/diagnosis/tasks/${id}`, data)
+    return request.put(`/v1/diagnosis/tasks/${id}`, data)
   },
 
   // 删除任务
   deleteTask: (id: number): Promise<ApiResponse<void>> => {
-    return request.delete(`/api/v1/diagnosis/tasks/${id}`)
+    return request.delete(`/v1/diagnosis/tasks/${id}`)
   },
 
   // 执行任务
   runTask: (id: number): Promise<ApiResponse<void>> => {
-    return request.post(`/api/v1/diagnosis/tasks/${id}/run`)
+    return request.post(`/v1/diagnosis/tasks/${id}/run`)
   },
 
   // 启用/禁用任务
   toggleTask: (id: number, is_active: boolean): Promise<ApiResponse<DiagnosisTask>> => {
-    return request.put(`/api/v1/diagnosis/tasks/${id}`, { is_active })
+    return request.put(`/v1/diagnosis/tasks/${id}`, { is_active })
   }
 }
 
@@ -246,12 +246,12 @@ export const diagnosisResultApi = {
     start_date?: string
     end_date?: string
   }): Promise<ApiResponse<DiagnosisResultListResponse>> => {
-    return request.get('/api/v1/diagnosis/results/', { params })
+    return request.get('/v1/diagnosis/results/', { params })
   },
 
   // 获取结果详情
   getResult: (id: number): Promise<ApiResponse<DiagnosisResult>> => {
-    return request.get(`/api/v1/diagnosis/results/${id}`)
+    return request.get(`/v1/diagnosis/results/${id}`)
   }
 }
 
@@ -267,17 +267,37 @@ export const diagnosisAlarmApi = {
     start_date?: string
     end_date?: string
   }): Promise<ApiResponse<DiagnosisAlarm[]>> => {
-    return request.get('/api/v1/diagnosis/alarms/', { params })
+    return request.get('/v1/diagnosis/alarms/', { params })
   },
 
   // 确认告警
   acknowledgeAlarm: (id: number): Promise<ApiResponse<void>> => {
-    return request.post(`/api/v1/diagnosis/alarms/${id}/acknowledge`)
+    return request.post(`/v1/diagnosis/alarms/${id}/acknowledge`)
   },
 
   // 批量确认告警
   batchAcknowledge: (ids: number[]): Promise<ApiResponse<void>> => {
-    return request.post('/api/v1/diagnosis/alarms/batch-acknowledge', { alarm_ids: ids })
+    return request.post('/v1/diagnosis/alarms/batch-acknowledge', { alarm_ids: ids })
+  },
+
+  // 更新告警状态
+  updateAlarmStatus: (id: number, status: string): Promise<ApiResponse<void>> => {
+    return request.put(`/v1/diagnosis/alarms/${id}/status`, { status })
+  },
+
+  // 批量更新告警状态
+  batchUpdateStatus: (ids: number[], status: string): Promise<ApiResponse<void>> => {
+    return request.put('/v1/diagnosis/alarms/batch-status', { alarm_ids: ids, status })
+  },
+
+  // 删除告警
+  deleteAlarm: (id: number): Promise<ApiResponse<void>> => {
+    return request.delete(`/v1/diagnosis/alarms/${id}`)
+  },
+
+  // 清空所有告警
+  clearAllAlarms: (): Promise<ApiResponse<void>> => {
+    return request.delete('/v1/diagnosis/alarms/clear-all')
   }
 }
 
@@ -292,32 +312,32 @@ export const diagnosisTemplateApi = {
     is_active?: boolean
     is_public?: boolean
   }): Promise<ApiResponse<DiagnosisTemplate[]>> => {
-    return request.get('/api/v1/diagnosis/templates/', { params })
+    return request.get('/v1/diagnosis/templates/', { params })
   },
 
   // 获取模板详情
   getTemplate: (id: number): Promise<ApiResponse<DiagnosisTemplate>> => {
-    return request.get(`/api/v1/diagnosis/templates/${id}`)
+    return request.get(`/v1/diagnosis/templates/${id}`)
   },
 
   // 创建模板
   createTemplate: (data: DiagnosisTemplateCreate): Promise<ApiResponse<DiagnosisTemplate>> => {
-    return request.post('/api/v1/diagnosis/templates/', data)
+    return request.post('/v1/diagnosis/templates/', data)
   },
 
   // 更新模板
   updateTemplate: (id: number, data: Partial<DiagnosisTemplateCreate>): Promise<ApiResponse<DiagnosisTemplate>> => {
-    return request.put(`/api/v1/diagnosis/templates/${id}`, data)
+    return request.put(`/v1/diagnosis/templates/${id}`, data)
   },
 
   // 删除模板
   deleteTemplate: (id: number): Promise<ApiResponse<void>> => {
-    return request.delete(`/api/v1/diagnosis/templates/${id}`)
+    return request.delete(`/v1/diagnosis/templates/${id}`)
   },
 
   // 启用/禁用模板
   toggleTemplate: (id: number, is_active: boolean): Promise<ApiResponse<DiagnosisTemplate>> => {
-    return request.put(`/api/v1/diagnosis/templates/${id}`, { is_active })
+    return request.put(`/v1/diagnosis/templates/${id}`, { is_active })
   }
 }
 
@@ -408,32 +428,32 @@ export const alarmRuleApi = {
     severity?: string
     is_enabled?: boolean
   }): Promise<ApiResponse<AlarmRule[]>> => {
-    return request.get('/api/v1/alarm-rules/', { params })
+    return request.get('/v1/alarm-rules/', { params })
   },
 
   // 获取规则详情
   getRule: (id: number): Promise<ApiResponse<AlarmRule>> => {
-    return request.get(`/api/v1/alarm-rules/${id}`)
+    return request.get(`/v1/alarm-rules/${id}`)
   },
 
   // 创建规则
   createRule: (data: AlarmRuleCreate): Promise<ApiResponse<AlarmRule>> => {
-    return request.post('/api/v1/alarm-rules/', data)
+    return request.post('/v1/alarm-rules/', data)
   },
 
   // 更新规则
   updateRule: (id: number, data: AlarmRuleUpdate): Promise<ApiResponse<AlarmRule>> => {
-    return request.put(`/api/v1/alarm-rules/${id}`, data)
+    return request.put(`/v1/alarm-rules/${id}`, data)
   },
 
   // 删除规则
   deleteRule: (id: number): Promise<ApiResponse<void>> => {
-    return request.delete(`/api/v1/alarm-rules/${id}`)
+    return request.delete(`/v1/alarm-rules/${id}`)
   },
 
   // 切换启用状态
   toggleRule: (id: number, is_enabled: boolean): Promise<ApiResponse<AlarmRule>> => {
-    return request.put(`/api/v1/alarm-rules/${id}/toggle`, { is_enabled })
+    return request.put(`/v1/alarm-rules/${id}/toggle`, { is_enabled })
   },
 
   // 获取统计信息
@@ -443,7 +463,7 @@ export const alarmRuleApi = {
     triggered_today: number
     total_count: number
   }>> => {
-    return request.get('/api/v1/alarm-rules/stats')
+    return request.get('/v1/alarm-rules/stats')
   }
 }
 
@@ -457,27 +477,27 @@ export const notificationChannelApi = {
     type?: string
     is_enabled?: boolean
   }): Promise<ApiResponse<NotificationChannel[]>> => {
-    return request.get('/api/v1/notification-channels/', { params })
+    return request.get('/v1/notification-channels/', { params })
   },
 
   // 获取渠道详情
   getChannel: (id: number): Promise<ApiResponse<NotificationChannel>> => {
-    return request.get(`/api/v1/notification-channels/${id}`)
+    return request.get(`/v1/notification-channels/${id}`)
   },
 
   // 创建渠道
   createChannel: (data: NotificationChannelCreate): Promise<ApiResponse<NotificationChannel>> => {
-    return request.post('/api/v1/notification-channels/', data)
+    return request.post('/v1/notification-channels/', data)
   },
 
   // 更新渠道
   updateChannel: (id: number, data: NotificationChannelUpdate): Promise<ApiResponse<NotificationChannel>> => {
-    return request.put(`/api/v1/notification-channels/${id}`, data)
+    return request.put(`/v1/notification-channels/${id}`, data)
   },
 
   // 删除渠道
   deleteChannel: (id: number): Promise<ApiResponse<void>> => {
-    return request.delete(`/api/v1/notification-channels/${id}`)
+    return request.delete(`/v1/notification-channels/${id}`)
   },
 
   // 测试通知
@@ -486,7 +506,7 @@ export const notificationChannelApi = {
     content: string
     recipient?: string
   }): Promise<ApiResponse<void>> => {
-    return request.post(`/api/v1/notification-channels/${id}/test`, data)
+    return request.post(`/v1/notification-channels/${id}/test`, data)
   },
 
   // 获取通知日志
@@ -495,7 +515,7 @@ export const notificationChannelApi = {
     page_size?: number
     status?: string
   }): Promise<ApiResponse<NotificationLog[]>> => {
-    return request.get(`/api/v1/notification-channels/${id}/logs`, { params })
+    return request.get(`/v1/notification-channels/${id}/logs`, { params })
   },
 
   // 获取统计信息
@@ -505,7 +525,7 @@ export const notificationChannelApi = {
     success_rate: number
     total_count: number
   }>> => {
-    return request.get('/api/v1/notification-channels/stats')
+    return request.get('/v1/notification-channels/stats')
   }
 }
 
@@ -513,6 +533,6 @@ export const notificationChannelApi = {
 export const diagnosisStatsApi = {
   // 获取统计概览
   getOverview: (days?: number): Promise<ApiResponse<DiagnosisStats>> => {
-    return request.get('/api/v1/diagnosis/stats/overview', { params: { days } })
+    return request.get('/v1/diagnosis/stats/overview', { params: { days } })
   }
 }

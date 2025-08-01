@@ -58,6 +58,11 @@ class AIAlgorithm(Base):
     # 配置信息
     config_schema = Column(JSON, default=dict, comment="配置参数模式")
     default_config = Column(JSON, default=dict, comment="默认配置参数")
+    input_format = Column(JSON, default=dict, comment="输入格式")
+    output_format = Column(JSON, default=dict, comment="输出格式")
+    performance_metrics = Column(JSON, default=dict, comment="性能指标")
+    resource_requirements = Column(JSON, default=dict, comment="资源需求")
+    supported_platforms = Column(JSON, default=list, comment="支持的平台")
     
     # 性能指标
     accuracy = Column(Float, comment="准确率")
@@ -97,10 +102,17 @@ class AIService(Base):
     name = Column(String(100), nullable=False, comment="服务名称")
     camera_id = Column(Integer, nullable=False, comment="摄像头ID")
     algorithm_id = Column(Integer, nullable=False, comment="算法ID")
+    model_id = Column(Integer, comment="模型ID")
     
     # 配置信息
     config = Column(JSON, default=dict, comment="算法配置参数")
     roi_areas = Column(JSON, default=list, comment="感兴趣区域")
+    
+    # 服务端点配置
+    endpoint_url = Column(String(500), comment="服务端点URL")
+    api_key = Column(String(200), comment="API密钥")
+    timeout_seconds = Column(Integer, default=30, comment="超时时间(秒)")
+    retry_count = Column(Integer, default=3, comment="重试次数")
     
     # 生效时间配置
     schedule_config = Column(JSON, default=dict, comment="时间调度配置")
@@ -112,6 +124,7 @@ class AIService(Base):
     alarm_config = Column(JSON, default=dict, comment="告警配置")
     
     # 状态信息
+    status = Column(Enum(ServiceStatus), default=ServiceStatus.STOPPED, comment="服务状态")
     is_active = Column(Boolean, default=True, comment="是否启用")
     is_running = Column(Boolean, default=False, comment="是否运行中")
     last_detection_time = Column(DateTime(timezone=True), comment="最后检测时间")
@@ -119,6 +132,15 @@ class AIService(Base):
     # 统计信息
     total_detections = Column(Integer, default=0, comment="总检测次数")
     total_alarms = Column(Integer, default=0, comment="总告警次数")
+    
+    # 服务性能统计
+    max_concurrent_requests = Column(Integer, default=10, comment="最大并发请求数")
+    current_requests = Column(Integer, default=0, comment="当前请求数")
+    total_requests = Column(Integer, default=0, comment="总请求数")
+    success_requests = Column(Integer, default=0, comment="成功请求数")
+    failed_requests = Column(Integer, default=0, comment="失败请求数")
+    avg_response_time = Column(Float, comment="平均响应时间(ms)")
+    last_heartbeat = Column(DateTime(timezone=True), comment="最后心跳时间")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
@@ -131,6 +153,7 @@ class AIModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, comment="模型名称")
     algorithm_id = Column(Integer, nullable=False, comment="所属算法ID")
+    version = Column(String(20), default="1.0.0", comment="模型版本")
     
     # 模型文件信息
     model_path = Column(String(500), comment="模型文件路径")
@@ -168,6 +191,10 @@ class AIServiceLog(Base):
     # 图像信息
     image_path = Column(String(500), comment="图像文件路径")
     image_timestamp = Column(DateTime(timezone=True), comment="图像时间戳")
+    
+    # 请求状态和响应时间
+    status = Column(String(20), default="success", comment="请求状态")
+    response_time = Column(Float, comment="响应时间(ms)")
     
     # 是否触发告警
     is_alarm = Column(Boolean, default=False, comment="是否触发告警")

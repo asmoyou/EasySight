@@ -60,6 +60,12 @@
             value-format="YYYY-MM-DD HH:mm:ss"
           />
         </el-form-item>
+        <el-form-item label="事件状态">
+          <el-select v-model="searchForm.is_ongoing" placeholder="请选择事件状态" clearable>
+            <el-option label="进行中" value="true" />
+            <el-option label="已结束" value="false" />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">
             <el-icon><Search /></el-icon>
@@ -144,9 +150,22 @@
             <span v-else class="no-objects">无</span>
           </template>
         </el-table-column>
-        <el-table-column prop="event_time" label="发生时间" width="180">
+        <el-table-column prop="start_time" label="开始时间" width="160">
           <template #default="{ row }">
-            {{ formatDateTime(row.event_time) }}
+            {{ formatDateTime(row.start_time) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="end_time" label="结束时间" width="160">
+          <template #default="{ row }">
+            <span v-if="row.end_time">{{ formatDateTime(row.end_time) }}</span>
+            <el-tag v-else type="success" size="small">进行中</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="duration" label="持续时间" width="120">
+          <template #default="{ row }">
+            <span v-if="row.duration">{{ formatDuration(row.duration) }}</span>
+            <span v-else-if="row.is_ongoing">{{ calculateDuration(row.start_time) }}</span>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100">
@@ -156,7 +175,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" size="small" @click="viewDetail(row)">
               详情
@@ -169,14 +188,27 @@
             >
               视频
             </el-button>
-            <el-button 
-              v-if="row.status === 'pending'" 
-              type="warning" 
-              size="small" 
-              @click="markAsRead(row)"
-            >
-              标记已读
-            </el-button>
+            <el-dropdown v-if="row.status === 'pending'" trigger="click">
+              <el-button type="warning" size="small">
+                处理 <el-icon class="el-icon--right"><arrow-down /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item @click="confirmEvent(row)">
+                    <el-icon><Check /></el-icon>
+                    确认报警
+                  </el-dropdown-item>
+                  <el-dropdown-item @click="markFalseAlarm(row)">
+                    <el-icon><Close /></el-icon>
+                    标记误报
+                  </el-dropdown-item>
+                  <el-dropdown-item divided @click="markAsRead(row)">
+                    <el-icon><View /></el-icon>
+                    标记已读
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -226,8 +258,17 @@
             <el-descriptions-item label="事件描述" :span="3">
               {{ currentEvent.description }}
             </el-descriptions-item>
-            <el-descriptions-item label="发生时间" :span="2">
-              {{ formatDateTime(currentEvent.event_time) }}
+            <el-descriptions-item label="开始时间">
+              {{ formatDateTime(currentEvent.start_time) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="结束时间">
+              <span v-if="currentEvent.end_time">{{ formatDateTime(currentEvent.end_time) }}</span>
+              <el-tag v-else type="success" size="small">进行中</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="持续时间">
+              <span v-if="currentEvent.duration">{{ formatDuration(currentEvent.duration) }}</span>
+              <span v-else-if="currentEvent.is_ongoing">{{ calculateDuration(currentEvent.start_time) }}</span>
+              <span v-else>-</span>
             </el-descriptions-item>
             <el-descriptions-item label="状态">
               <el-tag :type="getStatusColor(currentEvent.status)">
@@ -358,8 +399,10 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Picture, VideoPlay } from '@element-plus/icons-vue'
+import { Picture, VideoPlay, Check, Close, View, ArrowDown } from '@element-plus/icons-vue'
 import { Search, Refresh, RefreshLeft } from '@element-plus/icons-vue'
+import * as eventsApi from '@/api/events'
+import type { Event, EventQuery } from '@/api/events'
 
 // 类型定义
 interface Event {
@@ -385,6 +428,10 @@ interface Event {
   status: string
   is_read: boolean
   event_time: string
+  start_time: string
+  end_time?: string
+  duration?: number
+  is_ongoing: boolean
   created_at: string
   event_metadata?: any
 }
@@ -403,7 +450,8 @@ const searchForm = reactive({
   event_type: '',
   event_level: '',
   camera_name: '',
-  dateRange: [] as string[]
+  dateRange: [] as string[],
+  is_ongoing: ''
 })
 
 // 分页
@@ -417,7 +465,36 @@ const pagination = reactive({
 const loadEvents = async () => {
   loading.value = true
   try {
-    // 模拟数据
+    const params: EventQuery = {
+      page: pagination.page,
+      page_size: pagination.pageSize
+    }
+    
+    // 添加搜索条件
+    if (searchForm.event_type) {
+      params.event_type = searchForm.event_type
+    }
+    if (searchForm.event_level) {
+      params.event_level = searchForm.event_level
+    }
+    if (searchForm.camera_name) {
+      params.camera_name = searchForm.camera_name
+    }
+    if (searchForm.is_ongoing !== '') {
+      params.is_ongoing = searchForm.is_ongoing === 'true'
+    }
+    if (searchForm.dateRange && searchForm.dateRange.length === 2) {
+      params.start_date = searchForm.dateRange[0]
+      params.end_date = searchForm.dateRange[1]
+    }
+
+    const response = await eventsApi.getEvents(params)
+    events.value = response.events
+    pagination.total = response.total
+  } catch (error) {
+    console.error('加载事件数据失败:', error)
+    ElMessage.error('加载事件列表失败')
+    // 如果API调用失败，使用模拟数据作为后备
     const mockEvents: Event[] = [
       {
         id: 1,
@@ -449,6 +526,10 @@ const loadEvents = async () => {
         status: 'pending',
         is_read: false,
         event_time: '2024-01-15 14:30:25',
+        start_time: '2024-01-15 14:30:25',
+        end_time: null,
+        duration: null,
+        is_ongoing: true,
         created_at: '2024-01-15 14:30:25',
         event_metadata: {
           zone: 'A区',
@@ -481,9 +562,13 @@ const loadEvents = async () => {
           'https://sample-videos.com/zip/10/mp4/SampleVideo_640x360_1mb.mp4'
         ],
         thumbnail_url: 'https://via.placeholder.com/100x75/45b7d1/ffffff?text=缩略图2',
-        status: 'processing',
+        status: 'confirmed',
         is_read: true,
         event_time: '2024-01-15 13:45:12',
+        start_time: '2024-01-15 13:45:12',
+        end_time: '2024-01-15 13:47:30',
+        duration: 138,
+        is_ongoing: false,
         created_at: '2024-01-15 13:45:12',
         event_metadata: {
           face_quality: 'high',
@@ -514,9 +599,13 @@ const loadEvents = async () => {
         ],
         video_urls: [],
         thumbnail_url: 'https://via.placeholder.com/100x75/96ceb4/ffffff?text=缩略图3',
-        status: 'processed',
+        status: 'false_alarm',
         is_read: true,
         event_time: '2024-01-15 12:20:08',
+        start_time: '2024-01-15 12:20:08',
+        end_time: '2024-01-15 12:25:08',
+        duration: 300,
+        is_ongoing: false,
         created_at: '2024-01-15 12:20:08',
         event_metadata: {
           object_size: 'medium',
@@ -525,11 +614,8 @@ const loadEvents = async () => {
         }
       }
     ]
-    
     events.value = mockEvents
     pagination.total = mockEvents.length
-  } catch (error) {
-    ElMessage.error('加载事件列表失败')
   } finally {
     loading.value = false
   }
@@ -549,6 +635,7 @@ const handleReset = () => {
   searchForm.event_level = ''
   searchForm.camera_name = ''
   searchForm.dateRange = []
+  searchForm.is_ongoing = ''
   pagination.page = 1
   loadEvents()
 }
@@ -589,14 +676,38 @@ const playVideoUrl = (url: string) => {
   videoDialogVisible.value = true
 }
 
+// 确认报警
+const confirmEvent = async (event: Event) => {
+  try {
+    await eventsApi.confirmEvent(event.id, { resolution_notes: '' })
+    ElMessage.success('已确认报警')
+    loadEvents() // 刷新列表
+  } catch (error) {
+    console.error('确认报警失败:', error)
+    ElMessage.error('确认报警失败')
+  }
+}
+
+// 标记误报
+const markFalseAlarm = async (event: Event) => {
+  try {
+    await eventsApi.markFalseAlarm(event.id, { resolution_notes: '' })
+    ElMessage.success('已标记为误报')
+    loadEvents() // 刷新列表
+  } catch (error) {
+    console.error('标记误报失败:', error)
+    ElMessage.error('标记误报失败')
+  }
+}
+
 // 标记为已读
 const markAsRead = async (event: Event) => {
   try {
-    // 这里应该调用后端API
-    event.is_read = true
-    event.status = 'processed'
+    await eventsApi.markAsRead(event.id)
     ElMessage.success('已标记为已读')
+    loadEvents() // 刷新列表
   } catch (error) {
+    console.error('标记已读失败:', error)
     ElMessage.error('标记失败')
   }
 }
@@ -605,8 +716,8 @@ const markAsRead = async (event: Event) => {
 const getStatusColor = (status: string) => {
   const statusColors: Record<string, string> = {
     'pending': 'warning',
-    'processing': 'primary', 
-    'processed': 'success',
+    'confirmed': 'success',
+    'false_alarm': 'danger',
     'ignored': 'info'
   }
   return statusColors[status] || 'info'
@@ -616,8 +727,8 @@ const getStatusColor = (status: string) => {
 const getStatusName = (status: string) => {
   const statusNames: Record<string, string> = {
     'pending': '待处理',
-    'processing': '处理中',
-    'processed': '已处理', 
+    'confirmed': '确认报警',
+    'false_alarm': '误报',
     'ignored': '已忽略'
   }
   return statusNames[status] || '未知'
@@ -673,7 +784,28 @@ const getLevelName = (level: string) => {
 }
 
 const formatDateTime = (dateTime: string) => {
-  return dateTime
+  return new Date(dateTime).toLocaleString('zh-CN')
+}
+
+const formatDuration = (seconds: number) => {
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = seconds % 60
+  
+  if (hours > 0) {
+    return `${hours}小时${minutes}分${secs}秒`
+  } else if (minutes > 0) {
+    return `${minutes}分${secs}秒`
+  } else {
+    return `${secs}秒`
+  }
+}
+
+const calculateDuration = (startTime: string) => {
+  const start = new Date(startTime)
+  const now = new Date()
+  const diffInSeconds = Math.floor((now.getTime() - start.getTime()) / 1000)
+  return formatDuration(diffInSeconds)
 }
 
 // 生命周期

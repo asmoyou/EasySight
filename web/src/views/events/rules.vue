@@ -25,12 +25,12 @@
             style="width: 200px"
           />
         </el-form-item>
-        <el-form-item label="事件类型">
-          <el-select v-model="searchForm.event_type" placeholder="请选择事件类型" clearable>
-            <el-option label="告警事件" value="alarm" />
-            <el-option label="系统事件" value="system" />
-            <el-option label="用户事件" value="user" />
-            <el-option label="设备事件" value="device" />
+        <el-form-item label="诊断类型">
+          <el-select v-model="searchForm.diagnosis_type" placeholder="请选择诊断类型" clearable>
+            <el-option label="摄像头离线" value="camera_offline" />
+            <el-option label="视频质量异常" value="video_quality" />
+            <el-option label="运动检测" value="motion_detection" />
+            <el-option label="人脸识别" value="face_recognition" />
           </el-select>
         </el-form-item>
         <el-form-item label="规则状态">
@@ -62,21 +62,21 @@
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="name" label="规则名称" min-width="150" />
         <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="event_type" label="事件类型" width="120">
+        <el-table-column prop="diagnosis_types" label="诊断类型" width="150">
           <template #default="{ row }">
-            <el-tag :type="getEventTypeColor(row.event_type)">
-              {{ getEventTypeName(row.event_type) }}
+            <el-tag v-for="type in row.diagnosis_types" :key="type" :type="getDiagnosisTypeColor(type)" style="margin-right: 4px;">
+              {{ getDiagnosisTypeName(type) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="trigger_condition" label="触发条件" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="action_type" label="动作类型" width="120">
+        <el-table-column prop="severity_levels" label="严重程度" width="120">
           <template #default="{ row }">
-            <el-tag :type="getActionTypeColor(row.action_type)">
-              {{ getActionTypeName(row.action_type) }}
+            <el-tag v-for="level in row.severity_levels" :key="level" :type="getSeverityLevelColor(level)" style="margin-right: 4px;">
+              {{ getSeverityLevelName(level) }}
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="frequency_limit" label="频率限制" width="100" />
         <el-table-column prop="is_enabled" label="状态" width="100">
           <template #default="{ row }">
             <el-switch
@@ -143,36 +143,27 @@
             placeholder="请输入规则描述"
           />
         </el-form-item>
-        <el-form-item label="事件类型" prop="event_type">
-          <el-select v-model="formData.event_type" placeholder="请选择事件类型">
-            <el-option label="告警事件" value="alarm" />
-            <el-option label="系统事件" value="system" />
-            <el-option label="用户事件" value="user" />
-            <el-option label="设备事件" value="device" />
+        <el-form-item label="诊断类型" prop="diagnosis_types">
+          <el-select v-model="formData.diagnosis_types" placeholder="请选择诊断类型" multiple>
+            <el-option label="摄像头离线" value="camera_offline" />
+            <el-option label="视频质量异常" value="video_quality" />
+            <el-option label="运动检测" value="motion_detection" />
+            <el-option label="人脸识别" value="face_recognition" />
           </el-select>
         </el-form-item>
-        <el-form-item label="触发条件" prop="trigger_condition">
-          <el-input
-            v-model="formData.trigger_condition"
-            type="textarea"
-            :rows="3"
-            placeholder="请输入触发条件，支持JSON格式"
-          />
-        </el-form-item>
-        <el-form-item label="动作类型" prop="action_type">
-          <el-select v-model="formData.action_type" placeholder="请选择动作类型">
-            <el-option label="发送通知" value="notification" />
-            <el-option label="执行脚本" value="script" />
-            <el-option label="调用API" value="api" />
-            <el-option label="记录日志" value="log" />
+        <el-form-item label="严重程度" prop="severity_levels">
+          <el-select v-model="formData.severity_levels" placeholder="请选择严重程度" multiple>
+            <el-option label="低" value="low" />
+            <el-option label="中" value="medium" />
+            <el-option label="高" value="high" />
+            <el-option label="紧急" value="critical" />
           </el-select>
         </el-form-item>
-        <el-form-item label="动作配置" prop="action_config">
-          <el-input
-            v-model="formData.action_config"
-            type="textarea"
-            :rows="4"
-            placeholder="请输入动作配置，支持JSON格式"
+        <el-form-item label="频率限制" prop="frequency_limit">
+          <el-input-number
+            v-model="formData.frequency_limit"
+            :min="0"
+            placeholder="每小时最大触发次数"
           />
         </el-form-item>
         <el-form-item label="优先级" prop="priority">
@@ -200,36 +191,27 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, RefreshLeft } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
+import { alarmRulesApi, type AlarmRule, type AlarmRuleCreate, type AlarmRuleUpdate } from '@/api/alarm-rules'
 
 // 类型定义
-interface EventRule {
-  id: number
-  name: string
-  description: string
-  event_type: string
-  trigger_condition: string
-  action_type: string
-  action_config: string
-  priority: number
-  is_enabled: boolean
-  created_at: string
-  updated_at: string
-}
-
 interface EventRuleForm {
   name: string
   description: string
-  event_type: string
-  trigger_condition: string
-  action_type: string
-  action_config: string
+  diagnosis_types: string[]
+  camera_ids: number[]
+  camera_groups: string[]
+  severity_levels: string[]
+  threshold_config: Record<string, any>
+  frequency_limit: number
+  notification_channels: number[]
+  notification_template: string
   priority: number
   is_enabled: boolean
 }
 
 // 响应式数据
 const loading = ref(false)
-const rules = ref<EventRule[]>([])
+const rules = ref<AlarmRule[]>([])
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref<FormInstance>()
@@ -237,7 +219,7 @@ const formRef = ref<FormInstance>()
 // 搜索表单
 const searchForm = reactive({
   name: '',
-  event_type: '',
+  diagnosis_type: '',
   is_enabled: undefined as boolean | undefined
 })
 
@@ -245,10 +227,14 @@ const searchForm = reactive({
 const formData = reactive<EventRuleForm>({
   name: '',
   description: '',
-  event_type: '',
-  trigger_condition: '',
-  action_type: '',
-  action_config: '',
+  diagnosis_types: [],
+  camera_ids: [],
+  camera_groups: [],
+  severity_levels: [],
+  threshold_config: {},
+  frequency_limit: 0,
+  notification_channels: [],
+  notification_template: '',
   priority: 5,
   is_enabled: true
 })
@@ -257,10 +243,8 @@ const formData = reactive<EventRuleForm>({
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入规则名称', trigger: 'blur' }],
   description: [{ required: true, message: '请输入规则描述', trigger: 'blur' }],
-  event_type: [{ required: true, message: '请选择事件类型', trigger: 'change' }],
-  trigger_condition: [{ required: true, message: '请输入触发条件', trigger: 'blur' }],
-  action_type: [{ required: true, message: '请选择动作类型', trigger: 'change' }],
-  action_config: [{ required: true, message: '请输入动作配置', trigger: 'blur' }]
+  diagnosis_types: [{ required: true, message: '请选择诊断类型', trigger: 'change' }],
+  severity_levels: [{ required: true, message: '请选择严重程度级别', trigger: 'change' }]
 }
 
 // 分页
@@ -274,40 +258,43 @@ const pagination = reactive({
 const loadRules = async () => {
   loading.value = true
   try {
-    // 模拟数据
-    const mockRules: EventRule[] = [
+    const response = await alarmRulesApi.getAlarmRules({
+      page: pagination.page,
+      page_size: pagination.pageSize,
+      is_enabled: searchForm.is_enabled,
+      diagnosis_type: searchForm.diagnosis_type || undefined
+    })
+    
+    rules.value = response.data || response as any
+    pagination.total = response.total || (response as any).length || 0
+  } catch (error) {
+    console.error('加载规则列表失败:', error)
+    ElMessage.error('加载规则列表失败')
+    
+    // 备用模拟数据
+    const mockRules: AlarmRule[] = [
       {
         id: 1,
         name: '摄像头离线告警规则',
         description: '当摄像头离线时自动发送通知',
-        event_type: 'alarm',
-        trigger_condition: '{"type": "camera_offline", "duration": ">5min"}',
-        action_type: 'notification',
-        action_config: '{"channels": ["email", "sms"], "template": "camera_offline"}',
+        diagnosis_types: ['camera_offline'],
+        camera_ids: [],
+        camera_groups: [],
+        severity_levels: ['high'],
+        threshold_config: { duration: 300 },
+        frequency_limit: 5,
+        notification_channels: [1],
+        notification_template: 'camera_offline_template',
         priority: 8,
         is_enabled: true,
+        trigger_count: 0,
         created_at: '2024-01-15 10:00:00',
         updated_at: '2024-01-15 10:00:00'
-      },
-      {
-        id: 2,
-        name: '系统启动日志记录',
-        description: '系统启动时记录日志',
-        event_type: 'system',
-        trigger_condition: '{"type": "system_start"}',
-        action_type: 'log',
-        action_config: '{"level": "info", "message": "System started successfully"}',
-        priority: 3,
-        is_enabled: true,
-        created_at: '2024-01-15 09:00:00',
-        updated_at: '2024-01-15 09:00:00'
       }
     ]
     
     rules.value = mockRules
     pagination.total = mockRules.length
-  } catch (error) {
-    ElMessage.error('加载规则列表失败')
   } finally {
     loading.value = false
   }
@@ -320,7 +307,7 @@ const handleSearch = () => {
 
 const handleReset = () => {
   searchForm.name = ''
-  searchForm.event_type = ''
+  searchForm.diagnosis_type = ''
   searchForm.is_enabled = undefined
   pagination.page = 1
   loadRules()
@@ -343,39 +330,47 @@ const showCreateDialog = () => {
   dialogVisible.value = true
 }
 
-const editRule = (rule: EventRule) => {
+const editRule = (rule: AlarmRule) => {
   isEdit.value = true
   Object.assign(formData, {
     name: rule.name,
-    description: rule.description,
-    event_type: rule.event_type,
-    trigger_condition: rule.trigger_condition,
-    action_type: rule.action_type,
-    action_config: rule.action_config,
+    description: rule.description || '',
+    diagnosis_types: rule.diagnosis_types,
+    camera_ids: rule.camera_ids,
+    camera_groups: rule.camera_groups,
+    severity_levels: rule.severity_levels,
+    threshold_config: rule.threshold_config,
+    frequency_limit: rule.frequency_limit,
+    notification_channels: rule.notification_channels,
+    notification_template: rule.notification_template || '',
     priority: rule.priority,
     is_enabled: rule.is_enabled
   })
   dialogVisible.value = true
 }
 
-const toggleRule = async (rule: EventRule) => {
+const toggleRule = async (rule: AlarmRule) => {
   try {
+    await alarmRulesApi.toggleAlarmRule(rule.id, rule.is_enabled)
     ElMessage.success(`规则已${rule.is_enabled ? '启用' : '禁用'}`)
   } catch (error) {
+    console.error('切换规则状态失败:', error)
     ElMessage.error('操作失败')
     rule.is_enabled = !rule.is_enabled // 回滚状态
   }
 }
 
-const testRule = async (rule: EventRule) => {
+const testRule = async (rule: AlarmRule) => {
   try {
+    await alarmRulesApi.testAlarmRule(rule.id)
     ElMessage.success('规则测试成功')
   } catch (error) {
+    console.error('测试规则失败:', error)
     ElMessage.error('规则测试失败')
   }
 }
 
-const deleteRule = async (rule: EventRule) => {
+const deleteRule = async (rule: AlarmRule) => {
   try {
     await ElMessageBox.confirm(
       `确定要删除规则 "${rule.name}" 吗？`,
@@ -387,10 +382,14 @@ const deleteRule = async (rule: EventRule) => {
       }
     )
     
+    await alarmRulesApi.deleteAlarmRule(rule.id)
     ElMessage.success('删除成功')
     loadRules()
   } catch (error) {
-    // 用户取消删除
+    if (error !== 'cancel') {
+      console.error('删除规则失败:', error)
+      ElMessage.error('删除失败')
+    }
   }
 }
 
@@ -401,15 +400,26 @@ const submitForm = async () => {
     await formRef.value.validate()
     
     if (isEdit.value) {
-      ElMessage.success('更新成功')
+      // 更新规则 - 需要获取当前编辑的规则ID
+      const currentRule = rules.value.find(r => r.name === formData.name)
+      if (currentRule) {
+        await alarmRulesApi.updateAlarmRule(currentRule.id, formData as AlarmRuleUpdate)
+        ElMessage.success('更新成功')
+      }
     } else {
+      await alarmRulesApi.createAlarmRule(formData as AlarmRuleCreate)
       ElMessage.success('创建成功')
     }
     
     dialogVisible.value = false
     loadRules()
   } catch (error) {
-    ElMessage.error('表单验证失败')
+    console.error('提交表单失败:', error)
+    if (error.response?.data?.detail) {
+      ElMessage.error(error.response.data.detail)
+    } else {
+      ElMessage.error(isEdit.value ? '更新失败' : '创建失败')
+    }
   }
 }
 
@@ -417,54 +427,58 @@ const resetForm = () => {
   Object.assign(formData, {
     name: '',
     description: '',
-    event_type: '',
-    trigger_condition: '',
-    action_type: '',
-    action_config: '',
+    diagnosis_types: [],
+    camera_ids: [],
+    camera_groups: [],
+    severity_levels: [],
+    threshold_config: {},
+    frequency_limit: 0,
+    notification_channels: [],
+    notification_template: '',
     priority: 5,
     is_enabled: true
   })
 }
 
 // 辅助函数
-const getEventTypeColor = (type: string) => {
+const getDiagnosisTypeColor = (type: string) => {
   const colors: Record<string, string> = {
-    alarm: 'danger',
-    system: 'info',
-    user: 'success',
-    device: 'warning'
+    camera_offline: 'danger',
+    video_quality: 'warning',
+    motion_detection: 'info',
+    face_recognition: 'success'
   }
   return colors[type] || 'info'
 }
 
-const getEventTypeName = (type: string) => {
+const getDiagnosisTypeName = (type: string) => {
   const names: Record<string, string> = {
-    alarm: '告警事件',
-    system: '系统事件',
-    user: '用户事件',
-    device: '设备事件'
+    camera_offline: '摄像头离线',
+    video_quality: '视频质量异常',
+    motion_detection: '运动检测',
+    face_recognition: '人脸识别'
   }
   return names[type] || type
 }
 
-const getActionTypeColor = (type: string) => {
+const getSeverityLevelColor = (level: string) => {
   const colors: Record<string, string> = {
-    notification: 'primary',
-    script: 'warning',
-    api: 'success',
-    log: 'info'
+    low: 'info',
+    medium: 'warning',
+    high: 'danger',
+    critical: 'danger'
   }
-  return colors[type] || 'info'
+  return colors[level] || 'info'
 }
 
-const getActionTypeName = (type: string) => {
+const getSeverityLevelName = (level: string) => {
   const names: Record<string, string> = {
-    notification: '发送通知',
-    script: '执行脚本',
-    api: '调用API',
-    log: '记录日志'
+    low: '低',
+    medium: '中',
+    high: '高',
+    critical: '紧急'
   }
-  return names[type] || type
+  return names[level] || level
 }
 
 const formatDateTime = (dateTime: string) => {

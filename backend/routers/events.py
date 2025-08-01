@@ -15,7 +15,7 @@ router = APIRouter()
 # Pydantic models
 class EventCreate(BaseModel):
     event_type: EventType
-    event_level: EventLevel
+    event_level: EventLevel = EventLevel.MEDIUM
     title: str
     description: Optional[str] = None
     camera_id: int
@@ -39,6 +39,26 @@ class EventCreate(BaseModel):
     tags: List[str] = []
 
 class EventUpdate(BaseModel):
+    event_type: Optional[EventType] = None
+    event_level: Optional[EventLevel] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    camera_id: Optional[int] = None
+    camera_name: Optional[str] = None
+    camera_location: Optional[str] = None
+    algorithm_id: Optional[int] = None
+    algorithm_name: Optional[str] = None
+    confidence_score: Optional[float] = None
+    longitude: Optional[float] = None
+    latitude: Optional[float] = None
+    location_description: Optional[str] = None
+    detection_area: Optional[Dict[str, Any]] = None
+    roi_name: Optional[str] = None
+    image_urls: Optional[List[str]] = None
+    video_urls: Optional[List[str]] = None
+    thumbnail_url: Optional[str] = None
+    detected_objects: Optional[List[Dict[str, Any]]] = None
+    object_count: Optional[int] = None
     status: Optional[EventStatus] = None
     is_read: Optional[bool] = None
     is_important: Optional[bool] = None
@@ -46,6 +66,8 @@ class EventUpdate(BaseModel):
     processed_by: Optional[str] = None
     processed_at: Optional[datetime] = None
     resolution_notes: Optional[str] = None
+    event_time: Optional[datetime] = None
+    event_metadata: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
 
 class EventResponse(BaseModel):
@@ -165,6 +187,7 @@ class EventTrendData(BaseModel):
 
 # 事件管理
 @router.get("/", response_model=EventListResponse)
+@router.get("", response_model=EventListResponse)  # 支持不带尾部斜杠的URL
 async def get_events(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
@@ -176,6 +199,7 @@ async def get_events(
     camera_name: Optional[str] = Query(None, description="摄像头名称筛选"),
     algorithm_name: Optional[str] = Query(None, description="算法名称筛选"),
     is_read: Optional[bool] = Query(None, description="是否已读筛选"),
+    is_ongoing: Optional[bool] = Query(None, description="是否正在进行中筛选"),
     start_date: Optional[date] = Query(None, description="开始日期"),
     end_date: Optional[date] = Query(None, description="结束日期"),
     db: AsyncSession = Depends(get_db),
@@ -216,6 +240,9 @@ async def get_events(
     
     if is_read is not None:
         conditions.append(Event.is_read == is_read)
+    
+    if is_ongoing is not None:
+        conditions.append(Event.is_ongoing == is_ongoing)
     
     if start_date:
         conditions.append(Event.created_at >= start_date)
@@ -419,8 +446,8 @@ async def update_event(
     # 更新事件信息
     update_data = event_data.dict(exclude_unset=True)
     
-    # 如果状态变为已处理，自动设置处理人和处理时间
-    if update_data.get('status') == EventStatus.RESOLVED and not event.processed_by:
+    # 如果状态变为确认报警或误报，自动设置处理人和处理时间
+    if update_data.get('status') in [EventStatus.CONFIRMED, EventStatus.FALSE_ALARM] and not event.processed_by:
         update_data['processed_by'] = current_user.username
         update_data['processed_at'] = datetime.utcnow()
     
@@ -488,14 +515,18 @@ async def delete_event(
     
     return {"message": "事件删除成功"}
 
-@router.post("/{event_id}/handle")
-async def handle_event(
+# 事件状态处理相关模型
+class EventStatusUpdate(BaseModel):
+    resolution_notes: Optional[str] = None
+
+@router.post("/{event_id}/confirm", response_model=EventResponse)
+async def confirm_event(
     event_id: int,
-    handle_note: Optional[str] = None,
+    status_data: EventStatusUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """处理事件"""
+    """确认报警"""
     result = await db.execute(select(Event).where(Event.id == event_id))
     event = result.scalar_one_or_none()
     
@@ -505,21 +536,147 @@ async def handle_event(
             detail="事件不存在"
         )
     
-    if event.status == EventStatus.HANDLED:
+    if event.status != EventStatus.PENDING:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="事件已被处理"
+            detail="只能确认待处理状态的事件"
         )
     
-    event.status = EventStatus.HANDLED
-    event.handled_by = current_user.id
-    event.handled_at = datetime.utcnow()
-    if handle_note:
-        event.handle_note = handle_note
+    event.status = EventStatus.CONFIRMED
+    event.processed_by = current_user.username
+    event.processed_at = datetime.utcnow()
+    if status_data.resolution_notes:
+        event.resolution_notes = status_data.resolution_notes
     
     await db.commit()
+    await db.refresh(event)
     
-    return {"message": "事件处理成功"}
+    return EventResponse(
+        id=event.id,
+        event_id=event.event_id,
+        event_type=event.event_type,
+        event_level=event.event_level,
+        status=event.status,
+        title=event.title,
+        description=event.description,
+        camera_id=event.camera_id,
+        camera_name=event.camera_name,
+        camera_location=event.camera_location,
+        algorithm_id=event.algorithm_id,
+        algorithm_name=event.algorithm_name,
+        confidence_score=event.confidence_score,
+        longitude=event.longitude,
+        latitude=event.latitude,
+        location_description=event.location_description,
+        detection_area=event.detection_area,
+        roi_name=event.roi_name,
+        image_urls=event.image_urls or [],
+        video_urls=event.video_urls or [],
+        thumbnail_url=event.thumbnail_url,
+        detected_objects=event.detected_objects or [],
+        object_count=event.object_count,
+        is_read=event.is_read,
+        is_important=event.is_important,
+        assigned_to=event.assigned_to,
+        processed_by=event.processed_by,
+        processed_at=event.processed_at,
+        resolution_notes=event.resolution_notes,
+        event_time=event.event_time,
+        created_at=event.created_at,
+        updated_at=event.updated_at,
+        event_metadata=event.event_metadata or {},
+        tags=event.tags or []
+    )
+
+@router.post("/{event_id}/false-alarm", response_model=EventResponse)
+async def mark_false_alarm(
+    event_id: int,
+    status_data: EventStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """标记为误报"""
+    result = await db.execute(select(Event).where(Event.id == event_id))
+    event = result.scalar_one_or_none()
+    
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="事件不存在"
+        )
+    
+    if event.status != EventStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="只能标记待处理状态的事件为误报"
+        )
+    
+    event.status = EventStatus.FALSE_ALARM
+    event.processed_by = current_user.username
+    event.processed_at = datetime.utcnow()
+    if status_data.resolution_notes:
+        event.resolution_notes = status_data.resolution_notes
+    
+    await db.commit()
+    await db.refresh(event)
+    
+    return EventResponse(
+        id=event.id,
+        event_id=event.event_id,
+        event_type=event.event_type,
+        event_level=event.event_level,
+        status=event.status,
+        title=event.title,
+        description=event.description,
+        camera_id=event.camera_id,
+        camera_name=event.camera_name,
+        camera_location=event.camera_location,
+        algorithm_id=event.algorithm_id,
+        algorithm_name=event.algorithm_name,
+        confidence_score=event.confidence_score,
+        longitude=event.longitude,
+        latitude=event.latitude,
+        location_description=event.location_description,
+        detection_area=event.detection_area,
+        roi_name=event.roi_name,
+        image_urls=event.image_urls or [],
+        video_urls=event.video_urls or [],
+        thumbnail_url=event.thumbnail_url,
+        detected_objects=event.detected_objects or [],
+        object_count=event.object_count,
+        is_read=event.is_read,
+        is_important=event.is_important,
+        assigned_to=event.assigned_to,
+        processed_by=event.processed_by,
+        processed_at=event.processed_at,
+        resolution_notes=event.resolution_notes,
+        event_time=event.event_time,
+        created_at=event.created_at,
+        updated_at=event.updated_at,
+        event_metadata=event.event_metadata or {},
+        tags=event.tags or []
+    )
+
+@router.post("/{event_id}/mark-read")
+async def mark_event_read(
+    event_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """标记事件为已读"""
+    result = await db.execute(select(Event).where(Event.id == event_id))
+    event = result.scalar_one_or_none()
+    
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="事件不存在"
+        )
+    
+    event.is_read = True
+    await db.commit()
+    
+    return {"message": "事件已标记为已读"}
 
 # 事件规则管理
 @router.get("/rules/", response_model=List[EventRuleResponse])

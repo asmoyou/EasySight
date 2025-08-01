@@ -23,7 +23,7 @@ async def check_and_fix_running_tasks():
             
             # 使用原生SQL查询所有处于运行状态的任务
             result = await db.execute(
-                text("SELECT * FROM diagnosis_tasks WHERE status = 'running'")
+                text("SELECT * FROM diagnosis_tasks WHERE status = 'RUNNING'")
             )
             running_tasks = result.fetchall()
             
@@ -78,7 +78,7 @@ async def check_and_fix_running_tasks():
                     
                     # 使用原生SQL重置任务状态
                     await db.execute(
-                        text("UPDATE diagnosis_tasks SET status = 'pending' WHERE id = :task_id"),
+                        text("UPDATE diagnosis_tasks SET status = 'PENDING' WHERE id = :task_id"),
                         {"task_id": task_id}
                     )
                     

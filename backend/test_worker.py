@@ -21,7 +21,7 @@ import logging
 import sys
 import json
 import aiohttp
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # 添加项目根目录到Python路径
@@ -108,7 +108,7 @@ class WorkerTester:
                 "max_concurrent_tasks": config.max_concurrent_tasks,
                 "capabilities": ["diagnosis"],
                 "status": "online",
-                "registered_at": datetime.utcnow().isoformat()
+                "registered_at": datetime.now(timezone.utc).isoformat()
             }
             
             timeout = aiohttp.ClientTimeout(total=10)
@@ -159,7 +159,7 @@ class WorkerTester:
                 "max_concurrent_tasks": config.max_concurrent_tasks,
                 "capabilities": ["diagnosis"],
                 "status": "online",
-                "registered_at": datetime.utcnow().isoformat()
+                "registered_at": datetime.now(timezone.utc).isoformat()
             }
             
             timeout = aiohttp.ClientTimeout(total=10)

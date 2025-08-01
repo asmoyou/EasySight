@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>调试前端统计数据</title>
+</head>
+<body>
+    <h1>调试前端统计数据</h1>
+    <div id="results"></div>
+    
+    <script>
+        async function debugStats() {
+            const results = document.getElementById('results');
+            
+            // 检查localStorage中的token
+            const token = localStorage.getItem('token');
+            results.innerHTML += `<p>Token存在: ${!!token}</p>`;
+            
+            if (token) {
+                results.innerHTML += `<p>Token长度: ${token.length}</p>`;
+                
+                try {
+                    // 测试API调用
+                    const response = await fetch('http://localhost:8000/api/v1/ai/stats/overview', {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    results.innerHTML += `<p>API响应状态: ${response.status}</p>`;
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        results.innerHTML += `<h3>API返回数据:</h3>`;
+                        results.innerHTML += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                        
+                        // 检查关键字段
+                        results.innerHTML += `<h3>关键字段:</h3>`;
+                        results.innerHTML += `<p>total_count: ${data.total_count}</p>`;
+                        results.innerHTML += `<p>online_count: ${data.online_count}</p>`;
+                        results.innerHTML += `<p>processing_count: ${data.processing_count}</p>`;
+                        results.innerHTML += `<p>success_rate: ${data.success_rate}</p>`;
+                    } else {
+                        const errorData = await response.json();
+                        results.innerHTML += `<p>API错误: ${JSON.stringify(errorData)}</p>`;
+                    }
+                } catch (error) {
+                    results.innerHTML += `<p>请求失败: ${error.message}</p>`;
+                }
+            } else {
+                results.innerHTML += `<p>未找到token，需要先登录</p>`;
+                
+                // 尝试登录获取token
+                try {
+                    const loginResponse = await fetch('http://localhost:8000/api/v1/auth/login', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            username: 'admin',
+                            password: 'admin123'
+                        })
+                    });
+                    
+                    if (loginResponse.ok) {
+                        const loginData = await loginResponse.json();
+                        localStorage.setItem('token', loginData.access_token);
+                        results.innerHTML += `<p>登录成功，重新测试...</p>`;
+                        setTimeout(debugStats, 1000);
+                    } else {
+                        results.innerHTML += `<p>登录失败: ${loginResponse.status}</p>`;
+                    }
+                } catch (error) {
+                    results.innerHTML += `<p>登录请求失败: ${error.message}</p>`;
+                }
+            }
+        }
+        
+        // 页面加载后执行调试
+        debugStats();
+    </script>
+</body>
+</html>

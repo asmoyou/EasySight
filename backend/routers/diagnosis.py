@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_, desc, text
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import json
 import logging
 
@@ -133,7 +133,7 @@ class DiagnosisTaskResponse(BaseModel):
     id: int
     name: str
     diagnosis_type: DiagnosisType
-    target_id: int
+    target_id: Optional[int]
     target_type: str
     template_id: Optional[int]
     template_name: Optional[str]
@@ -230,6 +230,13 @@ class DiagnosisAlarmResponse(BaseModel):
     acknowledged_by_name: Optional[str]
     acknowledged_at: Optional[datetime]
     created_at: datetime
+    # 新增字段用于前端显示
+    thumbnail_url: Optional[str] = None
+    device_name: Optional[str] = None
+    device_location: Optional[str] = None
+    detection_data: Optional[Dict[str, Any]] = None
+    status: str = "unread"  # unread, read, handled, ignored
+    level: str = "medium"  # 映射severity字段
 
 class DiagnosisTemplateCreate(BaseModel):
     name: str
@@ -309,7 +316,8 @@ async def get_diagnosis_tasks(
         )
     
     if diagnosis_type:
-        conditions.append(DiagnosisTask.diagnosis_type == diagnosis_type)
+        # 使用JSON操作符检查diagnosis_types数组中是否包含指定类型
+        conditions.append(DiagnosisTask.diagnosis_types.contains([diagnosis_type.value]))
     
     if status:
         conditions.append(DiagnosisTask.status == status)
@@ -421,10 +429,29 @@ async def create_diagnosis_task(
         config = task_dict.pop('config')
         task_dict['diagnosis_config'] = config
     
+    # 处理定时任务相关字段
+    is_scheduled = task_dict.pop('is_scheduled', None)
+    schedule_config = task_dict.get('schedule_config', {})
+    
+    if is_scheduled:
+        # 开启定时任务
+        task_dict['schedule_type'] = 'cron'
+        if schedule_config and 'cron_expression' in schedule_config:
+            task_dict['cron_expression'] = schedule_config['cron_expression']
+        else:
+            # 如果没有提供cron表达式，使用默认值
+            task_dict['cron_expression'] = '0 0 * * *'  # 每天午夜执行
+            task_dict['schedule_config'] = {'cron_expression': '0 0 * * *'}
+    else:
+        # 不是定时任务
+        task_dict['schedule_type'] = None
+        task_dict['cron_expression'] = None
+        if not schedule_config:
+            task_dict['schedule_config'] = {}
+    
     # threshold_config 字段直接保存，无需转换
     # 移除前端字段，数据库中不存在
     task_dict.pop('target_type', None)
-    task_dict.pop('is_scheduled', None)
     
     task = DiagnosisTask(**task_dict)
     db.add(task)
@@ -542,9 +569,39 @@ async def update_diagnosis_task(
         'config': 'diagnosis_config'
     }
     
+    # 处理定时任务相关字段
+    is_scheduled = update_data.get('is_scheduled')
+    schedule_config = update_data.get('schedule_config')
+    
+    if is_scheduled is not None:
+        if is_scheduled:
+            # 开启定时任务
+            task.schedule_type = 'cron'
+            if schedule_config and 'cron_expression' in schedule_config:
+                task.cron_expression = schedule_config['cron_expression']
+                task.schedule_config = schedule_config
+            else:
+                # 如果没有提供cron表达式，使用默认值
+                task.cron_expression = '0 0 * * *'  # 每天午夜执行
+                task.schedule_config = {'cron_expression': '0 0 * * *'}
+        else:
+            # 关闭定时任务
+            task.schedule_type = None
+            task.cron_expression = None
+            task.schedule_config = {}
+    elif schedule_config is not None:
+        # 只更新调度配置，不改变is_scheduled状态
+        if task.schedule_type == 'cron' and 'cron_expression' in schedule_config:
+            task.cron_expression = schedule_config['cron_expression']
+            task.schedule_config = schedule_config
+    
     # threshold_config 字段直接更新，无需映射
     
     for field, value in update_data.items():
+        # 跳过已处理的定时任务相关字段
+        if field in ['is_scheduled', 'schedule_config']:
+            continue
+            
         if field in field_mapping:
             db_field = field_mapping[field]
             if field == 'diagnosis_type' and value:
@@ -937,25 +994,48 @@ async def get_diagnosis_alarms(
     result = await db.execute(query)
     alarms = result.scalars().all()
     
-    # 获取任务和确认人信息
+    # 获取任务、确认人和结果信息
     task_map = {}
     acknowledger_map = {}
+    result_map = {}
+    camera_map = {}
     
     if alarms:
-        # 通过结果获取任务信息
+        # 获取诊断结果信息
         result_ids = [a.result_id for a in alarms]
-        result_task_result = await db.execute(
-            select(DiagnosisResult.id, DiagnosisResult.task_id)
+        result_query = await db.execute(
+            select(DiagnosisResult)
             .where(DiagnosisResult.id.in_(result_ids))
         )
-        result_task_map = {row[0]: row[1] for row in result_task_result.all()}
+        results = result_query.scalars().all()
+        result_map = {r.id: r for r in results}
         
-        task_ids = list(result_task_map.values())
+        # 获取任务信息
+        task_ids = [r.task_id for r in results]
         if task_ids:
             task_result = await db.execute(select(DiagnosisTask).where(DiagnosisTask.id.in_(task_ids)))
             tasks = task_result.scalars().all()
             task_name_map = {t.id: t.name for t in tasks}
-            task_map = {result_id: task_name_map.get(task_id, "") for result_id, task_id in result_task_map.items()}
+            task_map = {r.id: task_name_map.get(r.task_id, "") for r in results}
+            
+            # 获取摄像头信息
+            camera_ids = []
+            for task in tasks:
+                if task.camera_ids:
+                    camera_ids.extend(task.camera_ids)
+            camera_ids = list(set(camera_ids))  # 去重
+            
+            if camera_ids:
+                from models.camera import Camera
+                camera_result = await db.execute(select(Camera).where(Camera.id.in_(camera_ids)))
+                cameras = camera_result.scalars().all()
+                camera_name_map = {c.id: c for c in cameras}
+                # 建立result_id到camera的映射
+                for task in tasks:
+                    if task.camera_ids:
+                        for result in results:
+                            if result.task_id == task.id and result.camera_id in camera_name_map:
+                                camera_map[result.id] = camera_name_map[result.camera_id]
         
         # 获取确认人信息
         acknowledger_ids = [a.acknowledged_by for a in alarms if a.acknowledged_by]
@@ -979,7 +1059,17 @@ async def get_diagnosis_alarms(
         acknowledged_by=alarm.acknowledged_by,
         acknowledged_by_name=acknowledger_map.get(alarm.acknowledged_by),
         acknowledged_at=alarm.acknowledged_at,
-        created_at=alarm.created_at
+        created_at=alarm.created_at,
+        # 填充新增字段
+        thumbnail_url=result_map[alarm.result_id].thumbnail_url if alarm.result_id in result_map else None,
+        device_name=camera_map[alarm.result_id].name if alarm.result_id in camera_map else None,
+        device_location=camera_map[alarm.result_id].location if alarm.result_id in camera_map else None,
+        detection_data={
+            "score": result_map[alarm.result_id].score,
+            "threshold": alarm.threshold_value or getattr(result_map[alarm.result_id], 'threshold', None)
+        } if alarm.result_id in result_map else None,
+        status="read" if alarm.is_acknowledged else "unread",
+        level=alarm.severity.lower() if alarm.severity else "medium"
     ) for alarm in alarms]
 
 @router.post("/alarms/{alarm_id}/acknowledge")
@@ -1011,6 +1101,113 @@ async def acknowledge_diagnosis_alarm(
     await db.commit()
     
     return {"message": "告警确认成功"}
+
+class AlarmStatusUpdate(BaseModel):
+    status: str
+
+@router.put("/alarms/{alarm_id}/status")
+async def update_alarm_status(
+    alarm_id: int,
+    status_data: AlarmStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """更新告警状态"""
+    # 查询告警
+    result = await db.execute(select(DiagnosisAlarm).where(DiagnosisAlarm.id == alarm_id))
+    alarm = result.scalar_one_or_none()
+    
+    if not alarm:
+        raise HTTPException(status_code=404, detail="告警不存在")
+    
+    # 更新状态 - 将status映射到is_acknowledged字段
+    status = status_data.status
+    if status in ["read", "handled"]:
+        alarm.is_acknowledged = True
+        alarm.acknowledged_by = current_user.id
+        alarm.acknowledged_at = func.now()
+    elif status == "ignored":
+        alarm.is_acknowledged = False
+        alarm.acknowledged_by = None
+        alarm.acknowledged_at = None
+    
+    await db.commit()
+    
+    return {"message": "告警状态更新成功"}
+
+class BatchAlarmStatusUpdate(BaseModel):
+    alarm_ids: List[int]
+    status: str
+
+@router.put("/alarms/batch-status")
+async def batch_update_alarm_status(
+    status_data: BatchAlarmStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """批量更新告警状态"""
+    # 查询告警
+    alarm_ids = status_data.alarm_ids
+    status = status_data.status
+    result = await db.execute(select(DiagnosisAlarm).where(DiagnosisAlarm.id.in_(alarm_ids)))
+    alarms = result.scalars().all()
+    
+    if not alarms:
+        raise HTTPException(status_code=404, detail="未找到指定的告警")
+    
+    # 批量更新状态 - 将status映射到is_acknowledged字段
+    for alarm in alarms:
+        if status in ["read", "handled"]:
+            alarm.is_acknowledged = True
+            alarm.acknowledged_by = current_user.id
+            alarm.acknowledged_at = func.now()
+        elif status == "ignored":
+            alarm.is_acknowledged = False
+            alarm.acknowledged_by = None
+            alarm.acknowledged_at = None
+    
+    await db.commit()
+    
+    return {"message": f"成功更新 {len(alarms)} 条告警状态"}
+
+@router.delete("/alarms/{alarm_id}")
+async def delete_alarm(
+    alarm_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """删除告警"""
+    # 查询告警
+    result = await db.execute(select(DiagnosisAlarm).where(DiagnosisAlarm.id == alarm_id))
+    alarm = result.scalar_one_or_none()
+    
+    if not alarm:
+        raise HTTPException(status_code=404, detail="告警不存在")
+    
+    # 删除告警
+    await db.delete(alarm)
+    await db.commit()
+    
+    return {"message": "告警删除成功"}
+
+@router.delete("/alarms/clear-all")
+async def clear_all_alarms(
+    confirmed: bool = Query(False, description="确认清空所有告警"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """清空所有告警"""
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="请确认清空所有告警操作")
+    
+    # 删除所有告警
+    result = await db.execute(select(func.count(DiagnosisAlarm.id)))
+    total_count = result.scalar()
+    
+    await db.execute(text("DELETE FROM diagnosis_alarms"))
+    await db.commit()
+    
+    return {"message": f"成功清空 {total_count} 条告警"}
 
 # 诊断模板管理
 @router.get("/templates/", response_model=List[DiagnosisTemplateResponse])
@@ -1500,33 +1697,24 @@ distributed_workers: Dict[str, Dict[str, Any]] = {}
 @router.post("/workers/register")
 async def register_worker_node(
     node_info: WorkerNodeInfo,
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db)
 ):
     """注册分布式Worker节点"""
-    node_data = {
+    worker_info = {
         "node_id": node_info.node_id,
         "node_name": node_info.node_name,
         "worker_pool_size": node_info.worker_pool_size,
         "max_concurrent_tasks": node_info.max_concurrent_tasks,
         "capabilities": node_info.capabilities,
         "status": node_info.status,
-        "registered_at": node_info.registered_at,
-        "last_heartbeat": datetime.utcnow(),
-        "total_tasks_executed": 0,
-        "current_tasks": 0
+        "registered_at": node_info.registered_at
     }
     
-    distributed_workers[node_info.node_id] = node_data
-    
-    return {
-        "message": f"Worker节点 {node_info.node_id} 注册成功",
-        "node_id": node_info.node_id
-    }
+    return await _register_worker_internal(worker_info, db)
 
 @router.delete("/workers/{node_id}")
 async def unregister_worker_node(
-    node_id: str,
-    current_user: User = Depends(get_current_user)
+    node_id: str
 ):
     """注销分布式Worker节点"""
     if node_id in distributed_workers:
@@ -1542,9 +1730,166 @@ async def unregister_worker_node(
 async def worker_heartbeat(
     node_id: str,
     heartbeat: WorkerHeartbeat,
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db)
 ):
     """接收Worker节点心跳"""
+    heartbeat_data = {
+        "timestamp": heartbeat.timestamp.isoformat(),
+        "status": heartbeat.status,
+        "worker_status": heartbeat.worker_status,
+        "system_info": heartbeat.system_info
+    }
+    
+    return await _worker_heartbeat_internal(node_id, heartbeat_data, db)
+
+@router.get("/workers/distributed")
+async def get_distributed_workers():
+    """获取所有分布式Worker节点状态"""
+    current_time = datetime.now(timezone.utc)
+    
+    # 检查节点是否在线（超过3分钟未发送心跳认为离线）
+    for node_id, node_data in distributed_workers.items():
+        last_heartbeat = node_data.get("last_heartbeat")
+        if last_heartbeat:
+            # 确保时区一致性
+            if last_heartbeat.tzinfo is None:
+                last_heartbeat = last_heartbeat.replace(tzinfo=timezone.utc)
+            if (current_time - last_heartbeat).total_seconds() > 180:
+                node_data["status"] = "offline"
+    
+    # 格式化节点数据，确保时间字段包含正确的时区信息
+    formatted_nodes = []
+    for node_data in distributed_workers.values():
+        formatted_node = node_data.copy()
+        
+        # 格式化注册时间
+        if "registered_at" in formatted_node and formatted_node["registered_at"]:
+            if isinstance(formatted_node["registered_at"], str):
+                # 如果是字符串，尝试解析并重新格式化
+                try:
+                    dt = datetime.fromisoformat(formatted_node["registered_at"].replace('Z', '+00:00'))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    formatted_node["registered_at"] = dt.isoformat()
+                except:
+                    pass
+            elif isinstance(formatted_node["registered_at"], datetime):
+                dt = formatted_node["registered_at"]
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                formatted_node["registered_at"] = dt.isoformat()
+        
+        # 格式化心跳时间
+        if "last_heartbeat" in formatted_node and formatted_node["last_heartbeat"]:
+            if isinstance(formatted_node["last_heartbeat"], datetime):
+                dt = formatted_node["last_heartbeat"]
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                formatted_node["last_heartbeat"] = dt.isoformat()
+        
+        formatted_nodes.append(formatted_node)
+    
+    return {
+        "total_nodes": len(distributed_workers),
+        "online_nodes": len([n for n in distributed_workers.values() if n["status"] == "online"]),
+        "nodes": formatted_nodes
+    }
+
+# 创建一个独立的无认证路由
+no_auth_router = APIRouter()
+
+@no_auth_router.get("/tasks/fetch")
+async def fetch_tasks_for_worker_no_auth(
+    node_id: str = Query(..., description="Worker节点ID"),
+    batch_size: int = Query(1, ge=1, le=10, description="批量获取任务数量"),
+    db: AsyncSession = Depends(get_db)
+):
+    """为分布式Worker节点获取待执行的任务 - 无认证版本"""
+    return await _fetch_tasks_internal(node_id, batch_size, db)
+
+@no_auth_router.post("/register")
+async def register_worker_no_auth(
+    worker_info: dict,
+    db: AsyncSession = Depends(get_db)
+):
+    """注册Worker节点 - 无认证版本"""
+    return await _register_worker_internal(worker_info, db)
+
+@no_auth_router.post("/{node_id}/heartbeat")
+async def worker_heartbeat_no_auth(
+    node_id: str,
+    heartbeat_data: dict,
+    db: AsyncSession = Depends(get_db)
+):
+    """Worker节点心跳 - 无认证版本"""
+    return await _worker_heartbeat_internal(node_id, heartbeat_data, db)
+
+@no_auth_router.post("/tasks/{task_id}/complete")
+async def complete_task_no_auth(
+    task_id: int,
+    completion_data: dict,
+    db: AsyncSession = Depends(get_db)
+):
+    """Worker完成任务 - 无认证版本"""
+    return await _complete_task_internal(task_id, completion_data, db)
+
+@no_auth_router.delete("/{node_id}")
+async def unregister_worker_no_auth(
+    node_id: str
+):
+    """注销Worker节点 - 无认证版本"""
+    if node_id in distributed_workers:
+        del distributed_workers[node_id]
+        return {"message": f"Worker节点 {node_id} 注销成功"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Worker节点不存在"
+        )
+
+@router.get("/tasks/fetch", dependencies=[])
+async def fetch_tasks_for_worker(
+    node_id: str = Query(..., description="Worker节点ID"),
+    batch_size: int = Query(1, ge=1, le=10, description="批量获取任务数量"),
+    db: AsyncSession = Depends(get_db)
+):
+    """为分布式Worker节点获取待执行的任务"""
+    return await _fetch_tasks_internal(node_id, batch_size, db)
+
+async def _register_worker_internal(worker_info: dict, db: AsyncSession):
+    """注册Worker节点内部逻辑"""
+    node_id = worker_info.get("node_id")
+    
+    # 检查是否已存在该节点，如果存在则保留统计信息
+    existing_data = distributed_workers.get(node_id, {})
+    
+    node_data = {
+        "node_id": node_id,
+        "node_name": worker_info.get("node_name"),
+        "worker_pool_size": worker_info.get("worker_pool_size"),
+        "max_concurrent_tasks": worker_info.get("max_concurrent_tasks"),
+        "capabilities": worker_info.get("capabilities"),
+        "status": worker_info.get("status"),
+        "registered_at": worker_info.get("registered_at"),
+        "last_heartbeat": datetime.now(timezone.utc),
+        # 保留已有的统计信息，如果是新节点则使用默认值
+        "total_tasks_executed": existing_data.get("total_tasks_executed", 0),
+        "current_tasks": 0,  # 重新注册时重置当前任务数
+        "current_task_ids": []  # 重新注册时清空当前任务列表
+    }
+    
+    distributed_workers[node_id] = node_data
+    
+    action = "重新注册" if existing_data else "注册"
+    logger.info(f"Worker节点 {node_id} {action}成功")
+    
+    return {
+        "message": f"Worker节点 {node_id} {action}成功",
+        "node_id": node_id
+    }
+
+async def _worker_heartbeat_internal(node_id: str, heartbeat_data: dict, db: AsyncSession):
+    """Worker节点心跳内部逻辑"""
     if node_id not in distributed_workers:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1553,40 +1898,15 @@ async def worker_heartbeat(
     
     # 更新心跳信息
     distributed_workers[node_id].update({
-        "last_heartbeat": heartbeat.timestamp,
-        "status": heartbeat.status,
-        "worker_status": heartbeat.worker_status,
-        "system_info": heartbeat.system_info
+        "last_heartbeat": datetime.fromisoformat(heartbeat_data.get("timestamp").replace('Z', '+00:00')) if heartbeat_data.get("timestamp") else datetime.now(timezone.utc),
+        "status": heartbeat_data.get("status"),
+        "worker_status": heartbeat_data.get("worker_status"),
+        "system_info": heartbeat_data.get("system_info")
     })
     
     return {"message": "心跳接收成功"}
 
-@router.get("/workers/distributed")
-async def get_distributed_workers(
-    current_user: User = Depends(get_current_user)
-):
-    """获取所有分布式Worker节点状态"""
-    current_time = datetime.utcnow()
-    
-    # 检查节点是否在线（超过3分钟未发送心跳认为离线）
-    for node_id, node_data in distributed_workers.items():
-        last_heartbeat = node_data.get("last_heartbeat")
-        if last_heartbeat and (current_time - last_heartbeat).total_seconds() > 180:
-            node_data["status"] = "offline"
-    
-    return {
-        "total_nodes": len(distributed_workers),
-        "online_nodes": len([n for n in distributed_workers.values() if n["status"] == "online"]),
-        "nodes": list(distributed_workers.values())
-    }
-
-@router.get("/tasks/fetch")
-async def fetch_tasks_for_worker(
-    node_id: str = Query(..., description="Worker节点ID"),
-    batch_size: int = Query(1, ge=1, le=10, description="批量获取任务数量"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
+async def _fetch_tasks_internal(node_id: str, batch_size: int, db: AsyncSession):
     """为分布式Worker节点获取待执行的任务"""
     if node_id not in distributed_workers:
         raise HTTPException(
@@ -1594,52 +1914,147 @@ async def fetch_tasks_for_worker(
             detail="Worker节点未注册"
         )
     
-    # 查询待执行的任务
-    result = await db.execute(
+    # 优先查询分配给该worker的任务
+    assigned_result = await db.execute(
         select(DiagnosisTask)
         .where(
             and_(
                 DiagnosisTask.is_active == True,
-                DiagnosisTask.status == TaskStatus.PENDING
+                DiagnosisTask.status == TaskStatus.PENDING,
+                DiagnosisTask.assigned_worker == node_id
             )
         )
         .limit(batch_size)
     )
     
-    tasks = result.scalars().all()
+    assigned_tasks = assigned_result.scalars().all()
+    remaining_batch_size = batch_size - len(assigned_tasks)
     
-    # 将任务标记为运行中（简化处理，实际应该有更复杂的任务分配逻辑）
+    # 如果还有剩余容量，获取未分配的任务
+    unassigned_tasks = []
+    if remaining_batch_size > 0:
+        unassigned_result = await db.execute(
+            select(DiagnosisTask)
+            .where(
+                and_(
+                    DiagnosisTask.is_active == True,
+                    DiagnosisTask.status == TaskStatus.PENDING,
+                    DiagnosisTask.assigned_worker.is_(None)
+                )
+            )
+            .limit(remaining_batch_size)
+        )
+        unassigned_tasks = unassigned_result.scalars().all()
+    
+    # 合并任务列表
+    all_tasks = list(assigned_tasks) + list(unassigned_tasks)
+    
+    # 将任务标记为运行中并分配给该worker
     task_list = []
-    for task in tasks:
+    for task in all_tasks:
         task.status = TaskStatus.RUNNING
+        task.assigned_worker = node_id
         task_list.append({
-            "task_id": task.id,
+            "id": task.id,  # Worker期望的字段名
+            "task_id": task.id,  # 保持兼容性
             "name": task.name,
-            "diagnosis_type": task.diagnosis_type.value,
-            "target_id": task.target_id,
-            "target_type": task.target_type,
-            "config": task.config,
+            "diagnosis_types": task.diagnosis_types,
+            "camera_ids": task.camera_ids,
+            "camera_groups": task.camera_groups,
+            "diagnosis_config": task.diagnosis_config,
             "assigned_node": node_id
         })
     
     await db.commit()
     
-    # 更新节点当前任务数
+    # 更新节点当前任务数和任务ID列表
     if node_id in distributed_workers:
         distributed_workers[node_id]["current_tasks"] = distributed_workers[node_id].get("current_tasks", 0) + len(task_list)
+        # 记录分配给该节点的任务ID
+        current_task_ids = distributed_workers[node_id].get("current_task_ids", [])
+        task_ids = [task["task_id"] for task in task_list]
+        distributed_workers[node_id]["current_task_ids"] = current_task_ids + task_ids
     
     return TaskFetchResponse(
         tasks=task_list,
         total_available=len(task_list)
     )
 
+async def _complete_task_internal(task_id: int, completion_data: dict, db: AsyncSession):
+    """Worker完成任务内部逻辑"""
+    try:
+        # 获取任务信息
+        result = await db.execute(
+            select(DiagnosisTask).where(DiagnosisTask.id == task_id)
+        )
+        task = result.scalar_one_or_none()
+        
+        if not task:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="任务不存在"
+            )
+        
+        # 更新任务状态
+        success = completion_data.get("success", False)
+        task.status = TaskStatus.COMPLETED if success else TaskStatus.FAILED
+        task.last_run_time = datetime.now(timezone.utc)
+        task.total_runs = task.total_runs + 1
+        
+        if success:
+            task.success_runs = task.success_runs + 1
+            
+            # 如果是cron类型的任务，更新下次运行时间
+            if task.schedule_type == 'cron' and task.cron_expression:
+                from diagnosis.scheduler import task_scheduler
+                await task_scheduler._update_next_run_time(task, db)
+        
+        # 保留worker分配信息以便历史查询
+        worker_node_id = task.assigned_worker
+        # task.assigned_worker = None  # 注释掉这行，保留历史分配信息
+        
+        await db.commit()
+        
+        # 更新worker节点状态
+        if worker_node_id and worker_node_id in distributed_workers:
+            worker_data = distributed_workers[worker_node_id]
+            
+            # 减少当前任务数
+            current_tasks = worker_data.get("current_tasks", 0)
+            worker_data["current_tasks"] = max(0, current_tasks - 1)
+            
+            # 从当前任务ID列表中移除
+            current_task_ids = worker_data.get("current_task_ids", [])
+            if task_id in current_task_ids:
+                current_task_ids.remove(task_id)
+                worker_data["current_task_ids"] = current_task_ids
+            
+            # 更新统计信息
+            worker_data["total_tasks_executed"] = worker_data.get("total_tasks_executed", 0) + 1
+            
+            logger.info(f"Worker节点 {worker_node_id} 完成任务 {task_id}，状态: {'成功' if success else '失败'}")
+        
+        return {
+            "message": f"任务 {task_id} 完成，状态: {'成功' if success else '失败'}",
+            "task_id": task_id,
+            "success": success
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"完成任务 {task_id} 时发生错误: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"完成任务时发生错误: {str(e)}"
+        )
+
 @router.post("/tasks/{task_id}/complete")
 async def complete_distributed_task(
     task_id: int,
     result_data: Dict[str, Any],
     node_id: str = Query(..., description="Worker节点ID"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: AsyncSession = Depends(get_db)
 ):
     """分布式Worker节点完成任务后的回调"""
     if node_id not in distributed_workers:
@@ -1687,6 +2102,11 @@ async def complete_distributed_task(
     if node_id in distributed_workers:
         distributed_workers[node_id]["total_tasks_executed"] = distributed_workers[node_id].get("total_tasks_executed", 0) + 1
         distributed_workers[node_id]["current_tasks"] = max(0, distributed_workers[node_id].get("current_tasks", 0) - 1)
+        # 从任务ID列表中移除已完成的任务
+        current_task_ids = distributed_workers[node_id].get("current_task_ids", [])
+        if task_id in current_task_ids:
+            current_task_ids.remove(task_id)
+            distributed_workers[node_id]["current_task_ids"] = current_task_ids
     
     return {"message": "任务完成状态已更新"}
 
@@ -1879,4 +2299,162 @@ async def check_task_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"任务状态检查失败: {str(e)}"
+        )
+
+# Worker统计API
+class WorkerStatsResponse(BaseModel):
+    """Worker统计响应"""
+    total_workers: int
+    online_workers: int
+    busy_workers: int
+    total_tasks_today: int
+    completed_tasks_today: int
+    failed_tasks_today: int
+    avg_task_duration: float
+
+@router.get("/workers/stats", response_model=WorkerStatsResponse)
+async def get_worker_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取Worker统计信息"""
+    try:
+        # 分布式Worker统计
+        total_workers = len(distributed_workers)
+        online_workers = len([w for w in distributed_workers.values() if w["status"] == "online"])
+        busy_workers = len([w for w in distributed_workers.values() if w["status"] == "busy"])
+        
+        # 今日任务统计
+        today = datetime.now().date()
+        today_start = datetime.combine(today, datetime.min.time())
+        
+        # 今日总任务数
+        total_tasks_result = await db.execute(
+            select(func.count(DiagnosisTask.id))
+            .where(DiagnosisTask.created_at >= today_start)
+        )
+        total_tasks_today = total_tasks_result.scalar() or 0
+        
+        # 今日完成任务数
+        completed_tasks_result = await db.execute(
+            select(func.count(DiagnosisTask.id))
+            .where(
+                and_(
+                    DiagnosisTask.updated_at >= today_start,
+                    DiagnosisTask.status == TaskStatus.COMPLETED
+                )
+            )
+        )
+        completed_tasks_today = completed_tasks_result.scalar() or 0
+        
+        # 今日失败任务数
+        failed_tasks_result = await db.execute(
+            select(func.count(DiagnosisTask.id))
+            .where(
+                and_(
+                    DiagnosisTask.updated_at >= today_start,
+                    DiagnosisTask.status == TaskStatus.FAILED
+                )
+            )
+        )
+        failed_tasks_today = failed_tasks_result.scalar() or 0
+        
+        # 平均任务执行时间（简化计算，实际应该基于任务执行记录）
+        avg_task_duration = 0.0
+        if completed_tasks_today > 0:
+            # 这里简化处理，实际应该有专门的任务执行时间记录
+            avg_task_duration = 120.0  # 假设平均2分钟
+        
+        return WorkerStatsResponse(
+            total_workers=total_workers,
+            online_workers=online_workers,
+            busy_workers=busy_workers,
+            total_tasks_today=total_tasks_today,
+            completed_tasks_today=completed_tasks_today,
+            failed_tasks_today=failed_tasks_today,
+            avg_task_duration=avg_task_duration
+        )
+        
+    except Exception as e:
+        logger.error(f"获取Worker统计失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取Worker统计失败: {str(e)}"
+        )
+
+# Worker任务API
+@router.get("/workers/{node_id}/tasks")
+async def get_worker_tasks(
+    node_id: str,
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    task_status: Optional[str] = Query(None, description="任务状态过滤"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取Worker节点的任务列表"""
+    try:
+        # 检查Worker节点是否存在
+        if node_id not in distributed_workers:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Worker节点不存在"
+            )
+        
+        # 构建查询条件 - 查询所有分配给该Worker节点的任务（包括历史任务）
+        query = select(DiagnosisTask).where(DiagnosisTask.assigned_worker == node_id)
+        
+        if task_status:
+            try:
+                status_enum = TaskStatus(task_status)
+                query = query.where(DiagnosisTask.status == status_enum)
+            except ValueError:
+                pass
+        
+        # 分页
+        offset = (page - 1) * page_size
+        query = query.offset(offset).limit(page_size).order_by(DiagnosisTask.created_at.desc())
+        
+        result = await db.execute(query)
+        tasks = result.scalars().all()
+        
+        # 转换为响应格式
+        task_list = []
+        for task in tasks:
+            task_data = {
+                "task_id": task.id,
+                "task_name": task.name,
+                "diagnosis_type": task.diagnosis_types[0] if task.diagnosis_types else None,
+                "status": task.status.value,
+                "assigned_at": task.created_at.isoformat(),
+                "node_id": node_id,
+                "total_runs": task.total_runs or 0,  # 总执行次数
+                "success_runs": task.success_runs or 0,  # 成功执行次数
+                "failed_runs": (task.total_runs or 0) - (task.success_runs or 0)  # 失败执行次数
+            }
+            
+            # 添加可选字段
+            if task.status == TaskStatus.RUNNING:
+                task_data["started_at"] = task.updated_at.isoformat()
+                task_data["progress"] = 50  # 简化处理
+            elif task.status == TaskStatus.COMPLETED:
+                task_data["started_at"] = task.created_at.isoformat()  # 使用创建时间作为开始时间
+                task_data["completed_at"] = task.updated_at.isoformat()
+                task_data["progress"] = 100
+            elif task.status == TaskStatus.FAILED:
+                task_data["started_at"] = task.created_at.isoformat()  # 使用创建时间作为开始时间
+                task_data["error_message"] = "任务执行失败"  # 简化处理
+                task_data["progress"] = 0
+            
+            task_list.append(task_data)
+        
+        return task_list
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取Worker任务失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取Worker任务失败: {str(e)}"
         )

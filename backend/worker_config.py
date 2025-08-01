@@ -16,7 +16,7 @@ class WorkerConfig(BaseSettings):
     # 主节点连接配置
     master_host: str = "localhost"
     master_port: int = 8000
-    master_api_base: str = "/api/v1"
+    master_api_base: str = "/api/v1/diagnosis"
     
     # 数据库连接配置（如果worker需要直接访问数据库）
     database_url: Optional[str] = None
@@ -51,11 +51,23 @@ worker_config = WorkerConfig()
 
 # 生成节点ID
 def generate_node_id() -> str:
-    """生成唯一的节点ID"""
+    """生成基于机器特征的稳定节点ID"""
     import socket
-    import uuid
+    import hashlib
+    import platform
+    
+    # 使用主机名和MAC地址生成稳定的节点ID
     hostname = socket.gethostname()
-    return f"{hostname}-{str(uuid.uuid4())[:8]}"
+    try:
+        import uuid
+        mac = hex(uuid.getnode())[2:]
+    except:
+        mac = "unknown"
+    
+    # 创建稳定的哈希值
+    unique_string = f"{hostname}-{mac}-{platform.machine()}"
+    hash_value = hashlib.md5(unique_string.encode()).hexdigest()[:8]
+    return f"{hostname}-{hash_value}"
 
 # 初始化配置
 if not worker_config.node_id:

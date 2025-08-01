@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, desc
+from sqlalchemy import select, and_, func, desc, case
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from pydantic import BaseModel, Field, validator
@@ -78,6 +78,57 @@ class TestNotificationRequest(BaseModel):
     title: str = Field(..., description="测试标题")
     content: str = Field(..., description="测试内容")
     recipients: Optional[List[str]] = Field(None, description="接收人列表")
+
+@router.get("/stats")
+async def get_notification_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取通知渠道统计信息"""
+    # 获取总渠道数
+    total_result = await db.execute(
+        select(func.count(NotificationChannel.id))
+    )
+    total_count = total_result.scalar() or 0
+    
+    # 获取启用的渠道数
+    enabled_result = await db.execute(
+        select(func.count(NotificationChannel.id)).where(
+            NotificationChannel.is_enabled == True
+        )
+    )
+    enabled_count = enabled_result.scalar() or 0
+    
+    # 获取今日发送统计
+    today = datetime.now().date()
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = datetime.combine(today, datetime.max.time())
+    
+    today_result = await db.execute(
+        select(
+            func.count(NotificationLog.id).label('sent_today'),
+            func.sum(case((NotificationLog.status == 'sent', 1), else_=0)).label('success_today')
+        ).where(
+            and_(
+                NotificationLog.created_at >= today_start,
+                NotificationLog.created_at <= today_end
+            )
+        )
+    )
+    today_stats = today_result.first()
+    
+    sent_today = today_stats.sent_today or 0
+    success_today = today_stats.success_today or 0
+    
+    # 计算成功率
+    success_rate = (success_today / sent_today * 100) if sent_today > 0 else 0
+    
+    return {
+        "total_count": total_count,
+        "enabled_count": enabled_count,
+        "sent_today": sent_today,
+        "success_rate": round(success_rate, 2)
+    }
 
 @router.get("/", response_model=List[NotificationChannelResponse])
 async def get_notification_channels(

@@ -82,11 +82,11 @@ const routes: Array<RouteRecordRaw> = [
         },
         children: [
           {
-            path: '/ai/algorithms',
-            name: 'AIAlgorithms',
-            component: () => import('@/views/ai/algorithms.vue'),
+            path: '/ai/unified',
+            name: 'AIUnified',
+            component: () => import('@/views/ai/unified-management.vue'),
             meta: {
-              title: 'AI算法管理',
+              title: 'AI应用管理中心',
               icon: 'MagicStick'
             }
           },
@@ -100,12 +100,12 @@ const routes: Array<RouteRecordRaw> = [
             }
           },
           {
-            path: '/ai/models',
-            name: 'AIModels',
-            component: () => import('@/views/ai/models.vue'),
+            path: '/ai/workers',
+            name: 'AIWorkers',
+            component: () => import('@/views/ai/workers.vue'),
             meta: {
-              title: 'AI模型管理',
-              icon: 'Box'
+              title: 'Worker节点管理',
+              icon: 'Monitor'
             }
           }
         ]

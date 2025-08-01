@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard">
+  <div class="dashboard" v-loading="loading">
     <!-- 统计卡片 -->
     <div class="stats-grid">
       <el-card class="stats-card" shadow="hover">
@@ -8,8 +8,8 @@
             <el-icon :size="32"><VideoCamera /></el-icon>
           </div>
           <div class="stats-info">
-            <div class="stats-value">{{ stats.totalCameras }}</div>
-            <div class="stats-label">摄像头总数</div>
+            <div class="stats-value">{{ stats.total_cameras }}</div>
+        <div class="stats-label">摄像头总数</div>
           </div>
         </div>
         <div class="stats-trend positive">
@@ -24,8 +24,8 @@
             <el-icon :size="32"><Connection /></el-icon>
           </div>
           <div class="stats-info">
-            <div class="stats-value">{{ stats.onlineCameras }}</div>
-            <div class="stats-label">在线摄像头</div>
+            <div class="stats-value">{{ stats.online_cameras }}</div>
+        <div class="stats-label">在线摄像头</div>
           </div>
         </div>
         <div class="stats-trend positive">
@@ -40,8 +40,8 @@
             <el-icon :size="32"><Warning /></el-icon>
           </div>
           <div class="stats-info">
-            <div class="stats-value">{{ stats.todayEvents }}</div>
-            <div class="stats-label">今日事件</div>
+            <div class="stats-value">{{ stats.today_events }}</div>
+        <div class="stats-label">今日事件</div>
           </div>
         </div>
         <div class="stats-trend negative">
@@ -56,8 +56,8 @@
             <el-icon :size="32"><Monitor /></el-icon>
           </div>
           <div class="stats-info">
-            <div class="stats-value">{{ stats.runningTasks }}</div>
-            <div class="stats-label">运行任务</div>
+            <div class="stats-value">{{ stats.running_tasks }}</div>
+        <div class="stats-label">运行任务</div>
           </div>
         </div>
         <div class="stats-trend positive">
@@ -74,7 +74,7 @@
         <template #header>
           <div class="card-header">
             <span class="card-title">事件趋势</span>
-            <el-select v-model="eventTrendPeriod" size="small" style="width: 120px">
+            <el-select v-model="eventTrendPeriod" size="small" style="width: 120px" @change="fetchDashboardData">
               <el-option label="最近7天" value="7d" />
               <el-option label="最近30天" value="30d" />
               <el-option label="最近90天" value="90d" />
@@ -201,61 +201,44 @@ import {
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import dayjs from 'dayjs'
+import { getDashboardOverview, getSystemHealth, type DashboardResponse, type DashboardStats } from '@/api/dashboard'
 
 // 统计数据
-const stats = ref({
-  totalCameras: 156,
-  onlineCameras: 142,
-  todayEvents: 23,
-  runningTasks: 8
+const stats = ref<DashboardStats>({
+  total_cameras: 0,
+  online_cameras: 0,
+  offline_cameras: 0,
+  total_events: 0,
+  today_events: 0,
+  unhandled_events: 0,
+  running_tasks: 0,
+  completed_tasks_today: 0,
+  failed_tasks_today: 0,
+  total_algorithms: 0,
+  active_algorithms: 0,
+  system_health: {
+    cpu_percent: 0,
+    memory_percent: 0,
+    disk_percent: 0,
+    network_sent: 0,
+    network_recv: 0,
+    status: 'healthy'
+  }
 })
 
 // 事件趋势周期
 const eventTrendPeriod = ref('7d')
 
 // 最近事件
-const recentEvents = ref([
-  {
-    id: 1,
-    title: '人员入侵检测',
-    camera: '摄像头-001',
-    time: new Date(Date.now() - 5 * 60 * 1000),
-    level: 'high',
-    status: 'pending'
-  },
-  {
-    id: 2,
-    title: '车辆违停检测',
-    camera: '摄像头-015',
-    time: new Date(Date.now() - 15 * 60 * 1000),
-    level: 'medium',
-    status: 'processing'
-  },
-  {
-    id: 3,
-    title: '烟雾检测告警',
-    camera: '摄像头-008',
-    time: new Date(Date.now() - 30 * 60 * 1000),
-    level: 'high',
-    status: 'resolved'
-  },
-  {
-    id: 4,
-    title: '人流量异常',
-    camera: '摄像头-023',
-    time: new Date(Date.now() - 45 * 60 * 1000),
-    level: 'low',
-    status: 'resolved'
-  }
-])
+const recentEvents = ref<any[]>([])
 
 // 系统状态
 const systemStatus = ref({
-  cpu: 45,
-  memory: 68,
-  disk: 32,
-  networkUp: 12.5,
-  networkDown: 45.8
+  cpu: 0,
+  memory: 0,
+  disk: 0,
+  networkUp: 0,
+  networkDown: 0
 })
 
 // 图表引用
@@ -301,7 +284,7 @@ const initEventTrendChart = () => {
       }
     },
     legend: {
-      data: ['事件数量', '处理数量']
+      data: ['事件总数', '已处理']
     },
     grid: {
       left: '3%',
@@ -318,7 +301,7 @@ const initEventTrendChart = () => {
     },
     series: [
       {
-        name: '事件数量',
+        name: '事件总数',
         type: 'line',
         data: [12, 19, 15, 25, 18, 22, 16],
         smooth: true,
@@ -327,7 +310,7 @@ const initEventTrendChart = () => {
         }
       },
       {
-        name: '处理数量',
+        name: '已处理',
         type: 'line',
         data: [10, 17, 13, 23, 16, 20, 14],
         smooth: true,
@@ -397,12 +380,104 @@ const handleResize = () => {
 // 定时更新数据
 let updateTimer: NodeJS.Timeout | null = null
 
-const updateData = () => {
-  // 模拟数据更新
-  systemStatus.value.cpu = Math.floor(Math.random() * 100)
-  systemStatus.value.memory = Math.floor(Math.random() * 100)
-  systemStatus.value.networkUp = Math.floor(Math.random() * 50)
-  systemStatus.value.networkDown = Math.floor(Math.random() * 100)
+// 事件趋势数据
+const eventTrendData = ref<any[]>([])
+
+// 摄像头状态数据
+const cameraStatusData = ref<any[]>([])
+
+// 加载状态
+const loading = ref(false)
+
+// 获取仪表盘数据
+const fetchDashboardData = async () => {
+  try {
+    loading.value = true
+    const days = eventTrendPeriod.value === '7d' ? 7 : eventTrendPeriod.value === '30d' ? 30 : 7
+    const response = await getDashboardOverview(days)
+    
+    if (response.data) {
+      // 更新统计数据
+      stats.value = response.data.stats
+      
+      // 更新事件趋势数据
+      eventTrendData.value = response.data.event_trend
+      
+      // 更新摄像头状态数据
+      cameraStatusData.value = response.data.camera_status
+      
+      // 更新最近事件
+      recentEvents.value = response.data.recent_events.map(event => ({
+        ...event,
+        camera: event.camera_name,
+        time: new Date(event.created_at)
+      }))
+      
+      // 更新系统状态
+      const health = response.data.stats.system_health
+      systemStatus.value = {
+        cpu: health.cpu_percent,
+        memory: health.memory_percent,
+        disk: health.disk_percent,
+        networkUp: Math.round(health.network_sent / 1024 / 1024), // 转换为MB
+        networkDown: Math.round(health.network_recv / 1024 / 1024) // 转换为MB
+      }
+      
+      // 更新图表
+      updateEventTrendChart()
+      updateCameraStatusChart()
+    }
+  } catch (error) {
+    console.error('获取仪表盘数据失败:', error)
+    ElMessage.error('获取仪表盘数据失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 更新事件趋势图表
+const updateEventTrendChart = () => {
+  if (!eventTrendChartInstance || !eventTrendData.value.length) return
+  
+  const dates = eventTrendData.value.map(item => dayjs(item.date).format('MM/DD'))
+  const eventCounts = eventTrendData.value.map(item => item.event_count)
+  const handledCounts = eventTrendData.value.map(item => item.handled_count)
+  
+  eventTrendChartInstance.setOption({
+    xAxis: {
+      data: dates
+    },
+    series: [
+      {
+        name: '事件总数',
+        data: eventCounts
+      },
+      {
+        name: '已处理',
+        data: handledCounts
+      }
+    ]
+  })
+}
+
+// 更新摄像头状态图表
+const updateCameraStatusChart = () => {
+  if (!cameraStatusChartInstance || !cameraStatusData.value.length) return
+  
+  const data = cameraStatusData.value.map(item => ({
+    name: item.status === 'online' ? '在线' : item.status === 'offline' ? '离线' : item.status,
+    value: item.count
+  }))
+  
+  cameraStatusChartInstance.setOption({
+    series: [{
+      data: data
+    }]
+  })
+}
+
+const updateData = async () => {
+  await fetchDashboardData()
 }
 
 onMounted(async () => {
@@ -411,6 +486,9 @@ onMounted(async () => {
   // 初始化图表
   initEventTrendChart()
   initCameraStatusChart()
+  
+  // 获取初始数据
+  await fetchDashboardData()
   
   // 监听窗口大小变化
   window.addEventListener('resize', handleResize)
