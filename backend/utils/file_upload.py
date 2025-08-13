@@ -227,6 +227,7 @@ class FileUploadService:
             
             # 返回文件信息
             result = {
+                "file_path": unique_filename,
                 "file_url": f"/api/v1/files/{unique_filename}",
                 "file_size": len(file_content),
                 "file_name": file.filename
@@ -272,11 +273,8 @@ class FileUploadService:
             HTTPException: 解析失败时抛出异常
         """
         try:
-            with tempfile.NamedTemporaryFile() as temp_file:
-                temp_file.write(file_content)
-                temp_file.flush()
-                
-                with zipfile.ZipFile(temp_file.name, 'r') as zip_file:
+            # 直接从内存中读取ZIP文件，避免临时文件权限问题
+            with zipfile.ZipFile(io.BytesIO(file_content), 'r') as zip_file:
                     # 检查必需文件
                     required_files = ['algorithm.json', 'main.py']
                     file_list = zip_file.namelist()

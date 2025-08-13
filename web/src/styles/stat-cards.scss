@@ -1,0 +1,226 @@
+// 统计卡片统一样式规范
+// 用于AI应用管理中心各页面的统计数据展示
+
+// 统计卡片容器
+.stats-cards {
+  margin-bottom: 24px;
+}
+
+// 统计卡片基础样式
+.stat-card {
+  display: flex;
+  align-items: center;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  border: 1px solid transparent;
+  
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  }
+  
+  // 零值状态样式
+  &.zero-value {
+    opacity: 0.7;
+    border: 1px dashed #d1d5db;
+    
+    .stat-icon {
+      opacity: 0.6;
+    }
+    
+    .stat-value {
+      color: #9ca3af;
+    }
+  }
+}
+
+// 统计图标样式
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 16px;
+  font-size: 24px;
+  color: white;
+  flex-shrink: 0;
+  
+  // 不同类型的渐变背景
+  &.algorithms {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+  }
+  
+  &.models {
+    background: linear-gradient(135deg, #10b981, #059669);
+  }
+  
+  &.services {
+    background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  }
+  
+  &.online {
+    background: linear-gradient(135deg, #10b981, #059669);
+  }
+  
+  &.total {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+  }
+  
+  &.processing {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+  }
+  
+  &.success {
+    background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  }
+  
+  &.storage {
+    background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  }
+  
+  &.performance {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+  }
+  
+  &.requests {
+    background: linear-gradient(135deg, #06b6d4, #0891b2);
+  }
+  
+  &.active {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+  }
+  
+  &.busy {
+    background: linear-gradient(135deg, #e6a23c, #ebb563);
+  }
+  
+  &.tasks {
+    background: linear-gradient(135deg, #909399, #a6a9ad);
+  }
+}
+
+// 统计内容区域
+.stat-content {
+  flex: 1;
+  min-width: 0; // 防止内容溢出
+}
+
+// 统计数值样式
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1f2937;
+  line-height: 1;
+  margin-bottom: 4px;
+  position: relative;
+  
+  // 零值提示
+  .zero-hint {
+    font-size: 12px;
+    color: #9ca3af;
+    font-weight: 400;
+    margin-left: 8px;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    white-space: nowrap;
+  }
+}
+
+// 统计标签样式
+.stat-label {
+  font-size: 14px;
+  color: #6b7280;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+// 响应式设计
+@media (max-width: 1200px) {
+  .stats-cards .el-col {
+    margin-bottom: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .stat-card {
+    padding: 16px;
+  }
+  
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    margin-right: 12px;
+  }
+  
+  .stat-value {
+    font-size: 24px;
+  }
+  
+  .stat-label {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  .stats-cards .el-col {
+    width: 100% !important;
+  }
+  
+  .stat-card {
+    padding: 14px;
+  }
+  
+  .stat-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 18px;
+    margin-right: 10px;
+  }
+  
+  .stat-value {
+    font-size: 20px;
+  }
+  
+  .stat-label {
+    font-size: 12px;
+  }
+}
+
+// 暗色主题适配
+.dark {
+  .stat-card {
+    background: var(--el-bg-color);
+    box-shadow: 0 2px 8px var(--el-box-shadow-light);
+    
+    &:hover {
+      box-shadow: 0 4px 16px var(--el-box-shadow);
+    }
+    
+    &.zero-value {
+      border-color: var(--el-border-color);
+    }
+  }
+  
+  .stat-value {
+    color: var(--el-text-color-primary);
+    
+    &.zero-value {
+      color: var(--el-text-color-placeholder);
+    }
+  }
+  
+  .stat-label {
+    color: var(--el-text-color-regular);
+  }
+  
+  .zero-hint {
+    color: var(--el-text-color-placeholder);
+  }
+}

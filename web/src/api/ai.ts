@@ -192,7 +192,7 @@ export const aiApi = {
           onProgress(progress)
         }
       }
-    }).then(response => response.data)
+    }).then(response => response.data.data)
   },
 
   // 批量操作

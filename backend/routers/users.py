@@ -207,7 +207,6 @@ async def create_user(
         email=user_data.email,
         full_name=user_data.full_name,
         phone=user_data.phone,
-        roles=user_data.roles,
         permissions=user_data.permissions,
         language=user_data.language,
         description=user_data.description
@@ -217,6 +216,22 @@ async def create_user(
     db.add(user)
     await db.commit()
     await db.refresh(user)
+    
+    # 分配角色
+    for role_name in user_data.roles:
+        # 查找角色
+        role_result = await db.execute(select(Role).where(Role.name == role_name))
+        role = role_result.scalar_one_or_none()
+        if role:
+            # 创建用户角色关联
+            user_role = UserRole(
+                user_id=user.id,
+                role_id=role.id,
+                assigned_by=current_user.id
+            )
+            db.add(user_role)
+    
+    await db.commit()
     
     # 获取用户角色和权限信息
     user_roles_permissions = await get_user_roles_and_permissions(user, db)

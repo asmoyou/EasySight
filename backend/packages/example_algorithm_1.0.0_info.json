@@ -1,0 +1,86 @@
+{
+  "name": "示例算法",
+  "code": "example_algorithm",
+  "version": "1.0.0",
+  "description": "这是一个用于测试动态加载功能的示例算法包",
+  "author": "EasySight Team",
+  "type": "detection",
+  "category": "example",
+  "tags": [
+    "示例",
+    "测试",
+    "动态加载"
+  ],
+  "file_info": {
+    "filename": "example_algorithm_1.0.0.zip",
+    "size": 4964,
+    "hash": "aea3efaab1cfdd7e3130072db3f8393bff4125fcd6a45c0b443a09ea02b8333a",
+    "created_at": "2025-08-06T16:58:18.466835"
+  },
+  "requirements": {
+    "python": ">=3.8",
+    "packages": [
+      "numpy>=1.20.0"
+    ]
+  },
+  "performance": {
+    "accuracy": 0.95,
+    "precision": 0.92,
+    "recall": 0.88,
+    "f1_score": 0.9
+  },
+  "resource_requirements": {
+    "cpu_cores": 1,
+    "memory_mb": 512,
+    "gpu_required": false,
+    "estimated_processing_time_ms": 100
+  },
+  "parameters": {
+    "threshold": {
+      "type": "number",
+      "default": 0.5,
+      "range": [
+        0,
+        1
+      ],
+      "description": "分类阈值"
+    },
+    "max_iterations": {
+      "type": "integer",
+      "default": 100,
+      "range": [
+        1,
+        1000
+      ],
+      "description": "最大迭代次数"
+    }
+  },
+  "input_spec": {
+    "type": "array",
+    "description": "输入数据数组",
+    "shape": "any",
+    "dtype": "numeric"
+  },
+  "output_spec": {
+    "type": "object",
+    "description": "算法处理结果",
+    "properties": {
+      "prediction": {
+        "type": "string",
+        "description": "预测结果"
+      },
+      "confidence": {
+        "type": "number",
+        "description": "置信度",
+        "range": [
+          0,
+          1
+        ]
+      },
+      "statistics": {
+        "type": "object",
+        "description": "统计信息"
+      }
+    }
+  }
+}

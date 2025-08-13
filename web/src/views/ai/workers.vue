@@ -7,54 +7,68 @@
     </div>
 
     <!-- 统计卡片 -->
-    <div class="stats-grid">
-      <el-card class="stat-card">
-        <div class="stat-content">
-          <div class="stat-icon online">
-            <el-icon><Monitor /></el-icon>
+    <div class="stats-cards">
+      <el-row :gutter="16">
+        <el-col :span="6">
+          <div class="stat-card" :class="{ 'zero-value': stats.online_workers === 0 }">
+            <div class="stat-icon online">
+              <el-icon><Monitor /></el-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">
+                {{ stats.online_workers }}
+                <span v-if="stats.online_workers === 0" class="zero-hint">暂无在线</span>
+              </div>
+              <div class="stat-label">在线节点</div>
+            </div>
           </div>
-          <div class="stat-info"> 
-            <div class="stat-value">{{ stats.online_workers }}</div>
-            <div class="stat-label">在线节点</div>
+        </el-col>
+        
+        <el-col :span="6">
+          <div class="stat-card" :class="{ 'zero-value': stats.total_workers === 0 }">
+            <div class="stat-icon total">
+              <el-icon><Cpu /></el-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">
+                {{ stats.total_workers }}
+                <span v-if="stats.total_workers === 0" class="zero-hint">暂无节点</span>
+              </div>
+              <div class="stat-label">总节点数</div>
+            </div>
           </div>
-        </div>
-      </el-card>
-      
-      <el-card class="stat-card">
-        <div class="stat-content">
-          <div class="stat-icon total">
-            <el-icon><Cpu /></el-icon>
+        </el-col>
+        
+        <el-col :span="6">
+          <div class="stat-card" :class="{ 'zero-value': stats.busy_workers === 0 }">
+            <div class="stat-icon busy">
+              <el-icon><Loading /></el-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">
+                {{ stats.busy_workers }}
+                <span v-if="stats.busy_workers === 0" class="zero-hint">暂无繁忙</span>
+              </div>
+              <div class="stat-label">繁忙节点</div>
+            </div>
           </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.total_workers }}</div>
-            <div class="stat-label">总节点数</div>
+        </el-col>
+        
+        <el-col :span="6">
+          <div class="stat-card" :class="{ 'zero-value': stats.completed_tasks_today === 0 }">
+            <div class="stat-icon tasks">
+              <el-icon><Operation /></el-icon>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value">
+                {{ stats.completed_tasks_today }}
+                <span v-if="stats.completed_tasks_today === 0" class="zero-hint">暂无完成</span>
+              </div>
+              <div class="stat-label">今日完成任务</div>
+            </div>
           </div>
-        </div>
-      </el-card>
-      
-      <el-card class="stat-card">
-        <div class="stat-content">
-          <div class="stat-icon busy">
-            <el-icon><Loading /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.busy_workers }}</div>
-            <div class="stat-label">繁忙节点</div>
-          </div>
-        </div>
-      </el-card>
-      
-      <el-card class="stat-card">
-        <div class="stat-content">
-          <div class="stat-icon tasks">
-            <el-icon><Operation /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.completed_tasks_today }}</div>
-            <div class="stat-label">今日完成任务</div>
-          </div>
-        </div>
-      </el-card>
+        </el-col>
+      </el-row>
     </div>
 
     <!-- 操作栏 -->
@@ -621,6 +635,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
+@import '@/styles/stat-cards.scss';
+
 .workers-container {
   padding: 20px;
   background-color: #f5f7fa;
@@ -644,64 +660,23 @@ onMounted(() => {
   font-size: 14px;
 }
 
-/* 统计卡片样式 */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 20px;
-  margin-bottom: 24px;
-}
-
-.stat-card {
-  border: none;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-}
-
-.stat-content {
-  display: flex;
-  align-items: center;
-  padding: 8px 0;
-}
-
+/* 工作节点页面特有的图标颜色 */
 .stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 16px;
-  font-size: 24px;
-  color: white;
-}
-
-.stat-icon.online {
-  background: linear-gradient(135deg, #67c23a, #85ce61);
-}
-
-.stat-icon.total {
-  background: linear-gradient(135deg, #409eff, #66b1ff);
-}
-
-.stat-icon.busy {
-  background: linear-gradient(135deg, #e6a23c, #ebb563);
-}
-
-.stat-icon.tasks {
-  background: linear-gradient(135deg, #909399, #a6a9ad);
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: 600;
-  color: #303133;
-  line-height: 1;
-  margin-bottom: 4px;
-}
-
-.stat-label {
-  font-size: 14px;
-  color: #606266;
+  &.online {
+    background: linear-gradient(135deg, #67c23a, #85ce61) !important;
+  }
+  
+  &.total {
+    background: linear-gradient(135deg, #409eff, #66b1ff) !important;
+  }
+  
+  &.busy {
+    background: linear-gradient(135deg, #f56c6c, #f78989) !important;
+  }
+  
+  &.tasks {
+    background: linear-gradient(135deg, #e6a23c, #eebe77) !important;
+  }
 }
 
 /* 操作栏样式 */
@@ -882,11 +857,6 @@ onMounted(() => {
 @media (max-width: 768px) {
   .workers-container {
     padding: 12px;
-  }
-  
-  .stats-grid {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 12px;
   }
   
   .action-bar {

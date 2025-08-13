@@ -1,5 +1,5 @@
 <script setup>
-import {ref, onMounted, defineProps, watch, onBeforeUnmount, defineEmits} from "vue";
+import {ref, onMounted, watch, onBeforeUnmount} from "vue";
 import { ElMessage } from 'element-plus'
 import { VideoCamera } from '@element-plus/icons-vue'
 

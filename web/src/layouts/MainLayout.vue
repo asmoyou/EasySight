@@ -42,7 +42,7 @@
               <span>AI应用中心</span>
             </template>
             <el-menu-item index="/ai/unified">AI应用管理中心</el-menu-item>
-            <el-menu-item index="/ai/services">服务管理</el-menu-item>
+            <el-menu-item index="/ai/services">事件算法服务管理</el-menu-item>
             <el-menu-item index="/ai/workers">Worker节点管理</el-menu-item>
           </el-sub-menu>
           

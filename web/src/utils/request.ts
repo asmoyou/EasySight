@@ -235,6 +235,7 @@ export default {
   upload<T = any>(url: string, formData: FormData, config?: AxiosRequestConfig): Promise<AxiosResponse<T>> {
     return service.post(url, formData, {
       ...config,
+      timeout: 300000, // 5分钟超时，适合大文件上传
       headers: {
         'Content-Type': 'multipart/form-data',
         ...config?.headers

@@ -193,7 +193,7 @@
                         <el-dropdown-item :command="{ action: 'view', data: algorithm }">查看详情</el-dropdown-item>
                         <el-dropdown-item :command="{ action: 'edit', data: algorithm }">编辑</el-dropdown-item>
                         <el-dropdown-item :command="{ action: 'copy', data: algorithm }">复制</el-dropdown-item>
-                        <el-dropdown-item :command="{ action: 'delete', data: algorithm }" divided>删除</el-dropdown-item>
+                        <el-dropdown-item :command="{ action: 'delete', data: algorithm }" divided class="danger-item">删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
                   </el-dropdown>
@@ -372,11 +372,13 @@
             <el-switch v-model="row.is_active" @change="toggleModelStatus(row)" />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" size="small" @click="viewModel(row)">查看</el-button>
-            <el-button type="warning" size="small" @click="editModel(row)">编辑</el-button>
-            <el-button type="danger" size="small" @click="deleteModel(row)">删除</el-button>
+            <div class="action-buttons">
+              <el-button type="primary" size="small" @click="viewModel(row)">查看</el-button>
+              <el-button type="warning" size="small" @click="editModel(row)">编辑</el-button>
+              <el-button type="danger" size="small" @click="deleteModel(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -705,18 +707,18 @@
             </el-col>
           </el-row>
           <el-row :gutter="16" style="margin-top: 16px;">
-            <el-col :span="12">
+            <el-col :span="24">
               <el-input
                 v-model.number="modelForm.performance_metrics.inference_time"
                 placeholder="50"
                 type="number"
                 min="0"
+                style="max-width: 400px;"
               >
                 <template #prepend>推理时间</template>
                 <template #append>ms</template>
               </el-input>
             </el-col>
-
           </el-row>
         </el-form-item>
         
@@ -1392,12 +1394,20 @@ const saveModel = async () => {
     
     if (editingModel.value) {
       const updateData: AIModelUpdate = {
-        ...modelForm,
+        name: modelForm.name,
+        model_type: modelForm.model_type,
+        version: modelForm.version,
+        description: modelForm.description,
+        algorithm_id: modelForm.algorithm_id,
+        input_format: modelForm.input_format,
+        output_format: modelForm.output_format,
         performance_metrics: {
           accuracy: modelForm.performance_metrics.accuracy,
           validation_accuracy: modelForm.performance_metrics.validation_accuracy,
           inference_time: modelForm.performance_metrics.inference_time
-        }
+        },
+        tags: modelForm.tags,
+        is_active: modelForm.is_active
       }
       await aiApi.updateModel(editingModel.value.id, updateData)
       ElMessage.success('模型更新成功')
@@ -1589,35 +1599,69 @@ const parseAlgorithmPackage = async () => {
 
 const installAlgorithmPackage = async () => {
   try {
+    if (!uploadFile.value) {
+      throw new Error('请先选择算法包文件')
+    }
+    
     installProgress.value = 0
     installStatus.value = ''
     installText.value = '正在安装算法包...'
     installLogs.value = []
     
-    const steps = [
-      { progress: 10, text: '正在上传文件...', log: '开始上传算法包文件' },
-      { progress: 30, text: '正在解压文件...', log: '正在解压算法包' },
-      { progress: 50, text: '正在安装依赖...', log: '正在安装Python依赖包' },
-      { progress: 70, text: '正在配置环境...', log: '正在配置算法运行环境' },
-      { progress: 90, text: '正在注册算法...', log: '正在注册算法到系统' },
-      { progress: 100, text: '安装完成', log: '算法包安装成功' }
-    ]
+    // 第一步：上传文件到MinIO
+    installProgress.value = 10
+    installText.value = '正在上传文件...'
+    installLogs.value.push({
+      time: new Date().toLocaleTimeString(),
+      level: 'info',
+      message: '开始上传算法包文件到MinIO'
+    })
     
-    for (const step of steps) {
-      await new Promise(resolve => setTimeout(resolve, 800))
-      installProgress.value = step.progress
-      installText.value = step.text
-      installLogs.value.push({
-        time: new Date().toLocaleTimeString(),
-        level: 'info',
-        message: step.log
-      })
-    }
+    const uploadResult = await aiApi.uploadAlgorithmFile(uploadFile.value, (progress) => {
+      installProgress.value = 10 + (progress * 0.6) // 上传占60%进度
+    })
     
-    installStatus.value = 'success'
+    installLogs.value.push({
+      time: new Date().toLocaleTimeString(),
+      level: 'info',
+      message: `文件上传成功: ${uploadResult.file_path}`
+    })
     
-    // 创建算法记录
+    // 第二步：解析算法包信息
+    installProgress.value = 70
+    installText.value = '正在解析算法包...'
+    installLogs.value.push({
+      time: new Date().toLocaleTimeString(),
+      level: 'info',
+      message: '正在解析算法包配置信息'
+    })
+    
+    // 更新算法信息中的文件路径
+    algorithmInfo.file_path = uploadResult.file_path
+    
+    await new Promise(resolve => setTimeout(resolve, 500))
+    
+    // 第三步：创建算法记录
+    installProgress.value = 90
+    installText.value = '正在注册算法...'
+    installLogs.value.push({
+      time: new Date().toLocaleTimeString(),
+      level: 'info',
+      message: '正在注册算法到系统'
+    })
+    
     await aiApi.createAlgorithm(algorithmInfo)
+    
+    // 完成
+    installProgress.value = 100
+    installText.value = '安装完成'
+    installStatus.value = 'success'
+    installLogs.value.push({
+      time: new Date().toLocaleTimeString(),
+      level: 'info',
+      message: '算法包安装成功'
+    })
+    
   } catch (error) {
     installStatus.value = 'exception'
     installText.value = '安装失败'
@@ -1727,6 +1771,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
+@import '@/styles/stat-cards.scss';
+
 .ai-unified-container {
   padding: 24px;
   background: #f5f5f5;
@@ -1767,97 +1813,6 @@ onMounted(() => {
 .header-right {
   display: flex;
   gap: 12px;
-}
-
-.stats-cards {
-  margin-bottom: 24px;
-}
-
-.stat-card {
-  display: flex;
-  align-items: center;
-  padding: 20px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
-}
-
-.stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-}
-
-.stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 16px;
-  font-size: 24px;
-  color: white;
-}
-
-.stat-icon.algorithms {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-}
-
-.stat-icon.models {
-  background: linear-gradient(135deg, #10b981, #059669);
-}
-
-.stat-icon.active {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-}
-
-.stat-icon.storage {
-  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
-}
-
-.stat-icon.performance {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-}
-
-.stat-icon.requests {
-  background: linear-gradient(135deg, #06b6d4, #0891b2);
-}
-
-.stat-content {
-  flex: 1;
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: #1f2937;
-  line-height: 1;
-  margin-bottom: 4px;
-  position: relative;
-}
-
-.zero-hint {
-  font-size: 12px;
-  color: #9ca3af;
-  font-weight: 400;
-  margin-left: 8px;
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.stat-card.zero-value {
-  opacity: 0.7;
-  border: 1px dashed #d1d5db;
-}
-
-.stat-card.zero-value .stat-icon {
-  opacity: 0.6;
-}
-
-.stat-card.zero-value .stat-value {
-  color: #9ca3af;
 }
 
 /* 空状态样式 */
@@ -2635,5 +2590,36 @@ onMounted(() => {
 
 .tag-item {
   margin: 0;
+}
+
+/* 操作按钮样式 */
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.action-buttons .el-button {
+  margin: 0;
+  min-width: 60px;
+}
+
+/* 删除按钮危险样式 */
+.el-dropdown-menu .danger-item {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item:hover {
+  background-color: #fef0f0 !important;
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item .el-icon {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item span {
+  color: #f56c6c !important;
 }
 </style>

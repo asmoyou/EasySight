@@ -8,7 +8,7 @@ export interface AlarmRule {
   diagnosis_types: string[]
   camera_ids: number[]
   camera_groups: string[]
-  severity_levels: string[]
+  severity_level: string
   threshold_config: Record<string, any>
   frequency_limit: number
   notification_channels: number[]
@@ -28,7 +28,7 @@ export interface AlarmRuleCreate {
   diagnosis_types: string[]
   camera_ids: number[]
   camera_groups: string[]
-  severity_levels: string[]
+  severity_level: string
   threshold_config: Record<string, any>
   frequency_limit: number
   notification_channels: number[]
@@ -43,7 +43,7 @@ export interface AlarmRuleUpdate {
   diagnosis_types?: string[]
   camera_ids?: number[]
   camera_groups?: string[]
-  severity_levels?: string[]
+  severity_level?: string
   threshold_config?: Record<string, any>
   frequency_limit?: number
   notification_channels?: number[]

@@ -1,0 +1,115 @@
+{
+  "name": "人脸检测算法",
+  "version": "1.0.0",
+  "type": "face_recognition",
+  "description": "基于深度学习的人脸检测算法，支持实时检测和识别",
+  "author": "EasySight Team",
+  "tags": ["人脸检测", "深度学习", "实时处理"],
+  "entry_point": "main.py",
+  "dependencies": [
+    "opencv-python>=4.5.0",
+    "numpy>=1.21.0",
+    "torch>=1.9.0",
+    "torchvision>=0.10.0",
+    "pillow>=8.3.0"
+  ],
+  "models": [
+    {
+      "name": "face_detection_model",
+      "path": "models/face_detection.pth",
+      "type": "pytorch",
+      "description": "人脸检测模型"
+    },
+    {
+      "name": "face_recognition_model",
+      "path": "models/face_recognition.pth",
+      "type": "pytorch",
+      "description": "人脸识别模型"
+    }
+  ],
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "confidence_threshold": {
+        "type": "number",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "default": 0.5,
+        "description": "置信度阈值"
+      },
+      "max_faces": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 10,
+        "description": "最大检测人脸数量"
+      },
+      "input_size": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        },
+        "minItems": 2,
+        "maxItems": 2,
+        "default": [640, 480],
+        "description": "输入图像尺寸 [width, height]"
+      }
+    },
+    "required": ["confidence_threshold"]
+  },
+  "input_format": {
+    "type": "image",
+    "formats": ["jpg", "jpeg", "png", "bmp"],
+    "max_size": "10MB"
+  },
+  "output_format": {
+    "type": "json",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "faces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "bbox": {
+                "type": "array",
+                "items": {"type": "number"},
+                "minItems": 4,
+                "maxItems": 4,
+                "description": "边界框坐标 [x, y, width, height]"
+              },
+              "confidence": {
+                "type": "number",
+                "description": "检测置信度"
+              },
+              "landmarks": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {"type": "number"},
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "description": "人脸关键点坐标"
+              }
+            }
+          }
+        },
+        "processing_time": {
+          "type": "number",
+          "description": "处理时间（毫秒）"
+        }
+      }
+    }
+  },
+  "performance": {
+    "accuracy": 0.95,
+    "inference_time": 50,
+    "memory_usage": "512MB",
+    "gpu_required": false
+  },
+  "supported_platforms": ["linux", "windows", "macos"],
+  "license": "MIT",
+  "documentation": "README.md"
+}

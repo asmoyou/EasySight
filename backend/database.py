@@ -89,6 +89,7 @@ async def init_db():
         from models.camera import Camera, CameraGroup, CameraGroupMember
         from models.ai_algorithm import AIAlgorithm, AIModel, AIService
         from models.event import Event, EventRule, EventNotification
+        from models.event_task import EventTask, EventTaskLog, EventTaskRecovery
         from models.diagnosis import DiagnosisTask, DiagnosisResult, DiagnosisAlarm, DiagnosisTemplate
         from models.system import SystemConfig, SystemVersion, DataRetentionPolicy, MessageCenter, SystemLog, SystemMetrics, License
         

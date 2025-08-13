@@ -27,6 +27,19 @@ class DiagnosisExecutor:
     
     def __init__(self):
         self.running_tasks = set()
+        self.cancelled_tasks = set()  # 被取消的任务集合
+        
+    def cancel_task(self, task_id: int):
+        """取消正在执行的任务"""
+        if task_id in self.running_tasks:
+            self.cancelled_tasks.add(task_id)
+            logger.info(f"任务 {task_id} 已标记为取消")
+            return True
+        return False
+        
+    def is_task_cancelled(self, task_id: int) -> bool:
+        """检查任务是否被取消"""
+        return task_id in self.cancelled_tasks
         
     async def execute_task(self, task_id: int, db: AsyncSession) -> Dict[str, Any]:
         """执行诊断任务"""
@@ -67,6 +80,12 @@ class DiagnosisExecutor:
             error_count = 0
             
             for camera in cameras:
+                # 检查任务是否被取消
+                if self.is_task_cancelled(task_id):
+                    logger.info(f"任务 {task_id} 被取消，停止执行")
+                    await self._update_task_status(task, TaskStatus.CANCELLED, "任务被用户取消", db)
+                    return {"success": False, "message": "任务被取消"}
+                    
                 try:
                     camera_results = await self._diagnose_camera(task, camera, db)
                     results.extend(camera_results)
@@ -116,6 +135,7 @@ class DiagnosisExecutor:
             
         finally:
             self.running_tasks.discard(task_id)
+            self.cancelled_tasks.discard(task_id)  # 清理取消标记
             
     async def _get_task_cameras(self, task: DiagnosisTask, db: AsyncSession) -> List[Camera]:
         """获取任务关联的摄像头"""

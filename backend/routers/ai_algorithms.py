@@ -5,13 +5,17 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, List, Generic, TypeVar
 from datetime import datetime
 import json
+import logging
 
 T = TypeVar('T')
 
-from database import get_db
+from database import get_db, get_minio
 from models.ai_algorithm import AIAlgorithm, AIService, AIModel, AIServiceLog, AlgorithmType, ServiceStatus, ModelType
 from models.user import User
 from routers.auth import get_current_user
+from config import settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -66,6 +70,9 @@ class AIAlgorithmResponse(BaseModel):
     usage_count: int
     created_at: datetime
     updated_at: datetime
+    file_path: Optional[str] = None
+    file_size: Optional[int] = None
+    file_hash: Optional[str] = None
 
 class AIServiceCreate(BaseModel):
     name: str
@@ -121,6 +128,7 @@ class AIServiceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     description: Optional[str]
+    tags: List[str] = []
 
 class AIModelCreate(BaseModel):
     name: str
@@ -173,6 +181,7 @@ class AIModelResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     description: Optional[str]
+    tags: List[str] = []
 
 class AIServiceLogResponse(BaseModel):
     id: int
@@ -261,6 +270,9 @@ async def get_algorithms(
         algorithm_type=algorithm.algorithm_type,
         version=algorithm.version,
         description=algorithm.description,
+        file_path=algorithm.file_path,
+        file_size=algorithm.file_size,
+        file_hash=algorithm.file_hash,
         config_schema=algorithm.config_schema,
         input_format=algorithm.input_format,
         output_format=algorithm.output_format,
@@ -463,6 +475,21 @@ async def delete_algorithm(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="该算法下还有关联的服务，无法删除"
         )
+    
+    # 删除MinIO中的文件
+    if algorithm.file_path:
+        try:
+            minio_client = get_minio()
+            # 从文件路径中提取对象名称
+            object_name = algorithm.file_path.replace("/api/v1/files/", "")
+            minio_client.remove_object(
+                bucket_name=settings.MINIO_BUCKET_NAME,
+                object_name=object_name
+            )
+            logger.info(f"已删除MinIO文件: {object_name}")
+        except Exception as e:
+            logger.warning(f"删除MinIO文件失败: {e}")
+            # 继续删除数据库记录，即使文件删除失败
     
     await db.delete(algorithm)
     await db.commit()
@@ -718,7 +745,8 @@ async def get_models(
         },
         performance_metrics={
             'accuracy': model.training_accuracy or 0.0,
-            'validation_accuracy': model.validation_accuracy or 0.0
+            'validation_accuracy': model.validation_accuracy or 0.0,
+            'inference_time': model.inference_time or 0.0
         },
         training_data_info={
             'dataset': model.training_dataset or '',
@@ -728,7 +756,8 @@ async def get_models(
         usage_count=0,  # 数据库中没有usage_count字段，使用默认值
         created_at=model.created_at,
         updated_at=model.updated_at,
-        description=""  # 数据库中没有description字段，使用空字符串
+        description=model.description or "",
+        tags=model.tags or []
     ) for model in models]
     
     return PaginatedResponse(
@@ -794,7 +823,8 @@ async def create_model(
         output_format=model_data.output_format,
         performance_metrics={
             'accuracy': model.training_accuracy or 0.0,
-            'validation_accuracy': model.validation_accuracy or 0.0
+            'validation_accuracy': model.validation_accuracy or 0.0,
+            'inference_time': model.inference_time or 0.0
         },
         training_data_info={
             'dataset': model.training_dataset or '',
@@ -908,10 +938,60 @@ async def delete_algorithm(
             detail="无法删除算法，存在关联的服务"
         )
     
+    # 删除MinIO中的文件
+    if algorithm.file_path:
+        try:
+            minio_client = get_minio()
+            # 从file_path中提取bucket和object_name
+            # file_path格式: /bucket/object_name
+            path_parts = algorithm.file_path.strip('/').split('/', 1)
+            if len(path_parts) == 2:
+                bucket_name, object_name = path_parts
+                minio_client.remove_object(bucket_name, object_name)
+                logger.info(f"已删除MinIO文件: {algorithm.file_path}")
+            else:
+                logger.warning(f"无效的文件路径格式: {algorithm.file_path}")
+        except Exception as e:
+            logger.error(f"删除MinIO文件失败: {algorithm.file_path}, 错误: {str(e)}")
+            # 继续删除数据库记录，即使文件删除失败
+    
     await db.delete(algorithm)
     await db.commit()
     
     return {"message": "算法删除成功"}
+
+# 下载算法包
+@router.get("/algorithms/{algorithm_id}/download")
+async def download_algorithm(
+    algorithm_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """下载算法包文件"""
+    from fastapi.responses import FileResponse
+    import os
+    
+    result = await db.execute(select(AIAlgorithm).where(AIAlgorithm.id == algorithm_id))
+    algorithm = result.scalar_one_or_none()
+    if not algorithm:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="算法不存在"
+        )
+    
+    if not algorithm.file_path or not os.path.exists(algorithm.file_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="算法包文件不存在"
+        )
+    
+    # 返回文件下载响应
+    filename = f"{algorithm.code}_{algorithm.version}.zip"
+    return FileResponse(
+        path=algorithm.file_path,
+        filename=filename,
+        media_type='application/zip'
+    )
 
 # 获取单个服务详情
 @router.get("/services/{service_id}", response_model=AIServiceResponse)
@@ -929,11 +1009,18 @@ async def get_service(
             detail="服务不存在"
         )
     
-    # 获取算法和模型信息
+    # 获取算法信息
     algorithm_result = await db.execute(select(AIAlgorithm).where(AIAlgorithm.id == service.algorithm_id))
     algorithm = algorithm_result.scalar_one_or_none()
     algorithm_name = algorithm.name if algorithm else ""
     
+    # 获取摄像头信息
+    from models.camera import Camera
+    camera_result = await db.execute(select(Camera).where(Camera.id == service.camera_id))
+    camera = camera_result.scalar_one_or_none()
+    camera_name = camera.name if camera else ""
+    
+    # 获取模型信息
     model_name = None
     if service.model_id:
         model_result = await db.execute(select(AIModel).where(AIModel.id == service.model_id))
@@ -945,6 +1032,8 @@ async def get_service(
         name=service.name,
         algorithm_id=service.algorithm_id,
         algorithm_name=algorithm_name,
+        camera_id=service.camera_id,
+        camera_name=camera_name,
         model_id=service.model_id,
         model_name=model_name,
         endpoint_url=service.endpoint_url,
@@ -1170,11 +1259,40 @@ async def start_service(
             detail="服务不存在"
         )
     
-    service.status = ServiceStatus.RUNNING
-    service.is_active = True
-    await db.commit()
+    # 检查服务是否已经在运行
+    if service.status == ServiceStatus.RUNNING:
+        return {"message": "服务已在运行中"}
     
-    return {"message": "服务启动成功"}
+    try:
+        # 更新服务状态为启动中
+        service.status = ServiceStatus.STARTING
+        service.is_active = True
+        await db.commit()
+        
+        # 通过AI服务监控器启动服务
+        from main import ai_service_monitor
+        success = await ai_service_monitor.start_service(service_id)
+        
+        if success:
+            service.status = ServiceStatus.RUNNING
+            service.is_running = True
+        else:
+            service.status = ServiceStatus.ERROR
+            service.is_running = False
+            
+        await db.commit()
+        
+        return {"message": "服务启动成功" if success else "服务启动失败"}
+        
+    except Exception as e:
+        logger.error(f"启动服务失败: {e}")
+        service.status = ServiceStatus.ERROR
+        service.is_running = False
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"服务启动失败: {str(e)}"
+        )
 
 # 停止服务
 @router.post("/services/{service_id}/stop")
@@ -1192,11 +1310,38 @@ async def stop_service(
             detail="服务不存在"
         )
     
-    service.status = ServiceStatus.STOPPED
-    service.is_active = False
-    await db.commit()
+    # 检查服务是否已经停止
+    if service.status == ServiceStatus.STOPPED:
+        return {"message": "服务已停止"}
     
-    return {"message": "服务停止成功"}
+    try:
+        # 更新服务状态为停止中
+        service.status = ServiceStatus.STOPPING
+        await db.commit()
+        
+        # 通过AI服务监控器停止服务
+        from main import ai_service_monitor
+        success = await ai_service_monitor.stop_service(service_id)
+        
+        if success:
+            service.status = ServiceStatus.STOPPED
+            service.is_active = False
+            service.is_running = False
+        else:
+            service.status = ServiceStatus.ERROR
+            
+        await db.commit()
+        
+        return {"message": "服务停止成功" if success else "服务停止失败"}
+        
+    except Exception as e:
+        logger.error(f"停止服务失败: {e}")
+        service.status = ServiceStatus.ERROR
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"服务停止失败: {str(e)}"
+        )
 
 # 获取单个模型详情
 @router.get("/models/{model_id}", response_model=AIModelResponse)
@@ -1236,7 +1381,8 @@ async def get_model(
         },
         performance_metrics={
             'accuracy': model.training_accuracy or 0.0,
-            'validation_accuracy': model.validation_accuracy or 0.0
+            'validation_accuracy': model.validation_accuracy or 0.0,
+            'inference_time': model.inference_time or 0.0
         },
         training_data_info={
             'dataset': model.training_dataset or '',
@@ -1246,7 +1392,8 @@ async def get_model(
         usage_count=0,  # 数据库中没有usage_count字段，使用默认值
         created_at=model.created_at,
         updated_at=model.updated_at,
-        description=""  # 数据库中没有description字段，使用空字符串
+        description=model.description or "",
+        tags=model.tags or []
     )
 
 # 更新模型
@@ -1276,6 +1423,8 @@ async def update_model(
                 model.training_accuracy = performance_metrics['accuracy']
             if 'validation_accuracy' in performance_metrics:
                 model.validation_accuracy = performance_metrics['validation_accuracy']
+            if 'inference_time' in performance_metrics:
+                model.inference_time = performance_metrics['inference_time']
     
     # version字段现在已经添加到数据库模型中，可以正常更新
     
@@ -1319,7 +1468,8 @@ async def update_model(
         usage_count=0,  # 数据库中没有usage_count字段，使用默认值
         created_at=model.created_at,
         updated_at=model.updated_at,
-        description=""  # 数据库中没有description字段，使用空字符串
+        description="",  # 数据库中没有description字段，使用空字符串
+        tags=model.tags or []
     )
 
 # 删除模型
@@ -1346,7 +1496,90 @@ async def delete_model(
             detail="无法删除模型，存在关联的服务"
         )
     
+    # 删除MinIO中的文件
+    if model.model_path:
+        try:
+            minio_client = get_minio()
+            # 从文件路径中提取对象名称
+            object_name = model.model_path.replace("/api/v1/files/", "")
+            minio_client.remove_object(
+                bucket_name=settings.MINIO_BUCKET_NAME,
+                object_name=object_name
+            )
+            logger.info(f"已删除MinIO文件: {object_name}")
+        except Exception as e:
+            logger.warning(f"删除MinIO文件失败: {e}")
+            # 继续删除数据库记录，即使文件删除失败
+    
     await db.delete(model)
     await db.commit()
     
     return {"message": "模型删除成功"}
+
+
+@router.get("/worker/algorithms/", response_model=PaginatedResponse[AIAlgorithmResponse])
+async def get_algorithms_for_worker(
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    is_active: Optional[bool] = Query(True, description="是否启用"),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取AI算法列表 - Worker节点专用（无需认证）"""
+    conditions = []
+    
+    # 默认只返回激活的算法包
+    if is_active is not None:
+        conditions.append(AIAlgorithm.is_active == is_active)
+    
+    # 构建基础查询
+    base_query = select(AIAlgorithm)
+    if conditions:
+        base_query = base_query.where(and_(*conditions))
+    
+    # 添加排序
+    base_query = base_query.order_by(AIAlgorithm.created_at.desc())
+    
+    # 获取总数
+    count_query = select(func.count(AIAlgorithm.id))
+    if conditions:
+        count_query = count_query.where(and_(*conditions))
+    
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+    
+    # 分页查询
+    offset = (page - 1) * page_size
+    paginated_query = base_query.offset(offset).limit(page_size)
+    
+    result = await db.execute(paginated_query)
+    algorithms = result.scalars().all()
+    
+    algorithm_responses = [AIAlgorithmResponse(
+        id=algorithm.id,
+        name=algorithm.name,
+        code=algorithm.code,
+        algorithm_type=algorithm.algorithm_type,
+        version=algorithm.version,
+        description=algorithm.description,
+        config_schema=algorithm.config_schema,
+        input_format=algorithm.input_format,
+        output_format=algorithm.output_format,
+        performance_metrics=algorithm.performance_metrics,
+        resource_requirements=algorithm.resource_requirements,
+        supported_platforms=algorithm.supported_platforms,
+        tags=algorithm.tags,
+        is_active=algorithm.is_active,
+        usage_count=algorithm.usage_count,
+        created_at=algorithm.created_at,
+        updated_at=algorithm.updated_at,
+        file_path=algorithm.file_path,
+        file_size=algorithm.file_size,
+        file_hash=algorithm.file_hash
+    ) for algorithm in algorithms]
+    
+    return PaginatedResponse(
+        data=algorithm_responses,
+        total=total,
+        page=page,
+        page_size=page_size
+    )

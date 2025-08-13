@@ -74,6 +74,15 @@ const routes: Array<RouteRecordRaw> = [
         ]
       },
       {
+        path: '/camera-detail/:id',
+        name: 'CameraDetail',
+        component: () => import('@/views/cameras/detail.vue'),
+        meta: {
+          title: '摄像头详情',
+          hidden: true // 在菜单中隐藏
+        }
+      },
+      {
         path: '/ai',
         name: 'AI',
         meta: {
@@ -143,6 +152,15 @@ const routes: Array<RouteRecordRaw> = [
             meta: {
               title: '通知配置',
               icon: 'Bell'
+            }
+          },
+          {
+            path: '/events/tasks',
+            name: 'EventTasks',
+            component: () => import('@/views/ai/event-tasks.vue'),
+            meta: {
+              title: '事件任务管理',
+              icon: 'Operation'
             }
           }
         ]
@@ -385,7 +403,7 @@ router.beforeEach(async (to, from, next) => {
     }
     
     for (const [pathPrefix, permission] of Object.entries(pagePermissionMap)) {
-      if (routePath.startsWith(pathPrefix)) {
+      if (routePath.startsWith(pathPrefix) && !routePath.startsWith('/camera-detail/')) {
         if (!userStore.hasPagePermission(permission)) {
           // 没有页面权限，重定向到首页
           next({ name: 'Dashboard' })

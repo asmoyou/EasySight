@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, desc
+from sqlalchemy import select, func, and_, desc, case
 from pydantic import BaseModel
 from typing import Dict, Any, List
 from datetime import datetime, timedelta
 import psutil
+import time
+import asyncio
 
 from database import get_db
 from models.user import User
@@ -67,97 +69,129 @@ async def get_dashboard_overview(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """获取仪表盘概览数据"""
+    """获取仪表盘概览数据（优化版本，带缓存）"""
     
-    # 获取基础统计数据
-    stats = await get_dashboard_stats(db)
+    global _dashboard_cache
     
-    # 获取事件趋势数据
-    event_trend = await get_event_trend_data(db, days)
+    # 生成缓存键
+    cache_key = f"dashboard_overview_{days}"
+    current_time = time.time()
     
-    # 获取摄像头状态分布
-    camera_status = await get_camera_status_data(db)
+    # 检查缓存是否有效
+    if (cache_key in _dashboard_cache and 
+        current_time - _dashboard_cache[cache_key]['timestamp'] < _cache_timeout):
+        return _dashboard_cache[cache_key]['data']
     
-    # 获取最近事件
-    recent_events = await get_recent_events(db, limit=10)
+    # 并发执行所有数据获取操作以提升性能
+    stats, event_trend, camera_status, recent_events = await asyncio.gather(
+        get_dashboard_stats(db),
+        get_event_trend_data(db, days),
+        get_camera_status_data(db),
+        get_recent_events(db, limit=10)
+    )
     
-    return DashboardResponse(
+    response = DashboardResponse(
         stats=stats,
         event_trend=event_trend,
         camera_status=camera_status,
         recent_events=recent_events,
         last_updated=datetime.now()
     )
+    
+    # 更新缓存
+    _dashboard_cache[cache_key] = {
+        'data': response,
+        'timestamp': current_time
+    }
+    
+    # 清理过期缓存（简单的清理策略）
+    expired_keys = [
+        key for key, value in _dashboard_cache.items()
+        if current_time - value['timestamp'] > _cache_timeout * 2
+    ]
+    for key in expired_keys:
+        del _dashboard_cache[key]
+    
+    return response
 
 async def get_dashboard_stats(db: AsyncSession) -> DashboardStats:
-    """获取仪表盘统计数据"""
-    
-    # 摄像头统计
-    total_cameras_result = await db.execute(select(func.count(Camera.id)))
-    total_cameras = total_cameras_result.scalar() or 0
-    
-    online_cameras_result = await db.execute(
-        select(func.count(Camera.id)).where(Camera.status == CameraStatus.ONLINE)
-    )
-    online_cameras = online_cameras_result.scalar() or 0
-    
-    offline_cameras = total_cameras - online_cameras
-    
-    # 事件统计
-    total_events_result = await db.execute(select(func.count(Event.id)))
-    total_events = total_events_result.scalar() or 0
+    """获取仪表盘统计数据（优化版本）"""
     
     today = datetime.now().date()
-    today_events_result = await db.execute(
-        select(func.count(Event.id)).where(
-            func.date(Event.created_at) == today
-        )
-    )
-    today_events = today_events_result.scalar() or 0
     
-    unhandled_events_result = await db.execute(
-        select(func.count(Event.id)).where(
-            Event.status == EventStatus.PENDING
-        )
-    )
-    unhandled_events = unhandled_events_result.scalar() or 0
-    
-    # 诊断任务统计
-    running_tasks_result = await db.execute(
-        select(func.count(DiagnosisTask.id)).where(
-            DiagnosisTask.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING])
-        )
-    )
-    running_tasks = running_tasks_result.scalar() or 0
-    
-    completed_tasks_today_result = await db.execute(
-        select(func.count(DiagnosisTask.id)).where(
-            and_(
-                func.date(DiagnosisTask.updated_at) == today,
-                DiagnosisTask.status == TaskStatus.COMPLETED
+    # 并发执行所有查询以提升性能
+    async def get_camera_stats():
+        """获取摄像头统计"""
+        result = await db.execute(
+            select(
+                func.count(Camera.id).label('total'),
+                func.sum(case((Camera.status == CameraStatus.ONLINE, 1), else_=0)).label('online')
             )
         )
-    )
-    completed_tasks_today = completed_tasks_today_result.scalar() or 0
+        row = result.first()
+        total = row.total or 0
+        online = row.online or 0
+        return total, online, total - online
     
-    failed_tasks_today_result = await db.execute(
-        select(func.count(DiagnosisTask.id)).where(
-            and_(
-                func.date(DiagnosisTask.updated_at) == today,
-                DiagnosisTask.status == TaskStatus.FAILED
+    async def get_event_stats():
+        """获取事件统计"""
+        result = await db.execute(
+            select(
+                func.count(Event.id).label('total'),
+                func.sum(case((func.date(Event.created_at) == today, 1), else_=0)).label('today'),
+                func.sum(case((Event.status == EventStatus.PENDING, 1), else_=0)).label('unhandled')
             )
         )
-    )
-    failed_tasks_today = failed_tasks_today_result.scalar() or 0
+        row = result.first()
+        return row.total or 0, row.today or 0, row.unhandled or 0
     
-    # AI算法统计
-    total_algorithms_result = await db.execute(select(func.count(AIAlgorithm.id)))
-    total_algorithms = total_algorithms_result.scalar() or 0
+    async def get_task_stats():
+        """获取诊断任务统计"""
+        result = await db.execute(
+            select(
+                func.sum(case((
+                    DiagnosisTask.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING]), 1
+                ), else_=0)).label('running'),
+                func.sum(case((
+                    and_(
+                        func.date(DiagnosisTask.updated_at) == today,
+                        DiagnosisTask.status == TaskStatus.COMPLETED
+                    ), 1
+                ), else_=0)).label('completed_today'),
+                func.sum(case((
+                    and_(
+                        func.date(DiagnosisTask.updated_at) == today,
+                        DiagnosisTask.status == TaskStatus.FAILED
+                    ), 1
+                ), else_=0)).label('failed_today')
+            )
+        )
+        row = result.first()
+        return row.running or 0, row.completed_today or 0, row.failed_today or 0
     
-    active_algorithms_result = await db.execute(
-        select(func.count(AIAlgorithm.id)).where(AIAlgorithm.is_active == True)
+    async def get_algorithm_stats():
+        """获取AI算法统计"""
+        result = await db.execute(
+            select(
+                func.count(AIAlgorithm.id).label('total'),
+                func.sum(case((AIAlgorithm.is_active == True, 1), else_=0)).label('active')
+            )
+        )
+        row = result.first()
+        return row.total or 0, row.active or 0
+    
+    # 并发执行所有数据库查询
+    (
+        (total_cameras, online_cameras, offline_cameras),
+        (total_events, today_events, unhandled_events),
+        (running_tasks, completed_tasks_today, failed_tasks_today),
+        (total_algorithms, active_algorithms)
+    ) = await asyncio.gather(
+        get_camera_stats(),
+        get_event_stats(),
+        get_task_stats(),
+        get_algorithm_stats()
     )
-    active_algorithms = active_algorithms_result.scalar() or 0
     
     # 系统健康状态
     system_health = get_system_health()
@@ -178,47 +212,46 @@ async def get_dashboard_stats(db: AsyncSession) -> DashboardStats:
     )
 
 async def get_event_trend_data(db: AsyncSession, days: int) -> List[EventTrendData]:
-    """获取事件趋势数据"""
+    """获取事件趋势数据（优化版本）"""
     
     end_date = datetime.now().date()
     start_date = end_date - timedelta(days=days-1)
     
-    # 获取每日事件数量
-    event_counts_result = await db.execute(
-        select(
-            func.date(Event.created_at).label('date'),
-            func.count(Event.id).label('event_count')
-        ).where(
-            func.date(Event.created_at).between(start_date, end_date)
-        ).group_by(
-            func.date(Event.created_at)
-        ).order_by(
-            func.date(Event.created_at)
-        )
-    )
-    event_counts = event_counts_result.all()
-    
-    # 获取每日处理数量
-    handled_counts_result = await db.execute(
-        select(
-            func.date(Event.updated_at).label('date'),
-            func.count(Event.id).label('handled_count')
-        ).where(
-            and_(
-                func.date(Event.updated_at).between(start_date, end_date),
-                Event.status.in_([EventStatus.RESOLVED, EventStatus.FALSE_ALARM, EventStatus.IGNORED])
+    # 并发获取事件创建和处理数据
+    async def get_event_counts():
+        result = await db.execute(
+            select(
+                func.date(Event.created_at).label('date'),
+                func.count(Event.id).label('event_count')
+            ).where(
+                func.date(Event.created_at).between(start_date, end_date)
+            ).group_by(
+                func.date(Event.created_at)
             )
-        ).group_by(
-            func.date(Event.updated_at)
-        ).order_by(
-            func.date(Event.updated_at)
         )
-    )
-    handled_counts = handled_counts_result.all()
+        return {row.date: row.event_count for row in result.all()}
     
-    # 创建日期到数量的映射
-    event_count_map = {row.date: row.event_count for row in event_counts}
-    handled_count_map = {row.date: row.handled_count for row in handled_counts}
+    async def get_handled_counts():
+        result = await db.execute(
+            select(
+                func.date(Event.updated_at).label('date'),
+                func.count(Event.id).label('handled_count')
+            ).where(
+                and_(
+                    func.date(Event.updated_at).between(start_date, end_date),
+                    Event.status.in_([EventStatus.RESOLVED, EventStatus.FALSE_ALARM, EventStatus.IGNORED])
+                )
+            ).group_by(
+                func.date(Event.updated_at)
+            )
+        )
+        return {row.date: row.handled_count for row in result.all()}
+    
+    # 并发执行两个查询
+    event_count_map, handled_count_map = await asyncio.gather(
+        get_event_counts(),
+        get_handled_counts()
+    )
     
     # 生成完整的日期序列
     trend_data = []
@@ -281,8 +314,17 @@ async def get_recent_events(db: AsyncSession, limit: int = 10) -> List[RecentEve
     
     return recent_events
 
+# 全局变量用于存储上次网络统计数据
+_last_network_stats = None
+_last_network_time = None
+
+# 缓存变量用于优化仪表盘性能
+_dashboard_cache = {}
+_cache_timeout = 30  # 缓存30秒
+
 def get_system_health() -> Dict[str, Any]:
     """获取系统健康状态"""
+    global _last_network_stats, _last_network_time
     
     try:
         # CPU使用率
@@ -296,15 +338,32 @@ def get_system_health() -> Dict[str, Any]:
         disk = psutil.disk_usage('/')
         disk_percent = disk.percent
         
-        # 网络状态
-        network = psutil.net_io_counters()
+        # 网络状态 - 计算实时速度
+        current_network = psutil.net_io_counters()
+        current_time = time.time()
+        
+        network_sent_rate = 0.0  # KB/s
+        network_recv_rate = 0.0  # KB/s
+        
+        if _last_network_stats and _last_network_time:
+            time_diff = current_time - _last_network_time
+            if time_diff > 0:
+                # 计算速度 (字节/秒 -> KB/s)
+                sent_diff = current_network.bytes_sent - _last_network_stats.bytes_sent
+                recv_diff = current_network.bytes_recv - _last_network_stats.bytes_recv
+                network_sent_rate = (sent_diff / time_diff) / 1024  # KB/s
+                network_recv_rate = (recv_diff / time_diff) / 1024  # KB/s
+        
+        # 更新上次统计数据
+        _last_network_stats = current_network
+        _last_network_time = current_time
         
         return {
             "cpu_percent": round(cpu_percent, 2),
             "memory_percent": round(memory_percent, 2),
             "disk_percent": round(disk_percent, 2),
-            "network_sent": network.bytes_sent,
-            "network_recv": network.bytes_recv,
+            "network_sent": round(network_sent_rate, 2),  # KB/s
+            "network_recv": round(network_recv_rate, 2),  # KB/s
             "status": "healthy" if cpu_percent < 80 and memory_percent < 80 and disk_percent < 90 else "warning"
         }
     except Exception as e:

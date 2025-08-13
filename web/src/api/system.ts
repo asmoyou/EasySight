@@ -51,7 +51,7 @@ export interface SystemConfig {
   id: number
   key: string
   value: string
-  value_type: string
+  data_type: string
   category: string
   description: string | null
   is_public: boolean
@@ -69,7 +69,7 @@ export interface SystemConfigCreate {
   category: string
   description?: string
   is_public?: boolean
-  value_type?: string
+  data_type?: string
   is_editable?: boolean
   requires_restart?: boolean
 }
@@ -89,6 +89,7 @@ export interface SystemLog {
   level: string
   module: string
   action: string
+  page_function: string | null
   message: string
   user_id: number | null
   user_name: string | null

@@ -9,7 +9,7 @@
       <div class="header-right">
         <el-button @click="handleMarkAllRead" :disabled="selectedAlarms.length === 0">
           <el-icon><Check /></el-icon>
-          标记已读
+          标记已确认
         </el-button>
         <el-button @click="handleClearAll">
           <el-icon><Delete /></el-icon>
@@ -57,18 +57,16 @@
           <el-option label="花屏检测" value="flower_screen" />
         </el-select>
         
-        <el-select v-model="searchForm.level" placeholder="告警级别" clearable style="width: 120px">
+        <el-select v-model="searchForm.severity" placeholder="告警级别" clearable style="width: 120px">
           <el-option label="低" value="low" />
           <el-option label="中" value="medium" />
           <el-option label="高" value="high" />
           <el-option label="紧急" value="critical" />
         </el-select>
         
-        <el-select v-model="searchForm.status" placeholder="处理状态" clearable style="width: 120px">
-          <el-option label="未读" value="unread" />
-          <el-option label="已读" value="read" />
-          <el-option label="已处理" value="handled" />
-          <el-option label="已忽略" value="ignored" />
+        <el-select v-model="searchForm.is_acknowledged" placeholder="确认状态" clearable style="width: 120px">
+          <el-option label="未确认" :value="false" />
+          <el-option label="已确认" :value="true" />
         </el-select>
         
         <el-date-picker
@@ -176,18 +174,18 @@
                 <el-tag :type="getAlarmTypeColor(row.alarm_type)" size="small">
                   {{ getAlarmTypeName(row.alarm_type) }}
                 </el-tag>
-                <el-tag :type="getLevelColor(row.level)" size="small">
-                  {{ getLevelName(row.level) }}
+                <el-tag :type="getLevelColor(row.severity)" size="small">
+                  {{ getLevelName(row.severity) }}
                 </el-tag>
               </div>
             </div>
           </template>
         </el-table-column>
         
-        <el-table-column prop="device_name" label="设备点位" width="150">
+        <el-table-column prop="camera_name" label="设备点位" width="150">
           <template #default="{ row }">
             <div class="device-info">
-              <span class="device-name">{{ row.device_name }}</span>
+              <span class="device-name">{{ row.camera_name }}</span>
               <span class="device-location" v-if="row.device_location">{{ row.device_location }}</span>
             </div>
           </template>
@@ -197,22 +195,22 @@
         
         <el-table-column label="检测数据" width="120">
           <template #default="{ row }">
-            <div v-if="row.detection_data" class="detection-data">
-              <div v-if="row.detection_data.score !== undefined">
-                分数: {{ row.detection_data.score.toFixed(2) }}
+            <div v-if="row.metrics" class="detection-data">
+              <div v-if="row.metrics.score !== undefined">
+                分数: {{ row.metrics.score.toFixed(2) }}
               </div>
-              <div v-if="row.detection_data.threshold !== undefined">
-                阈值: {{ row.detection_data.threshold.toFixed(2) }}
+              <div v-if="row.metrics.threshold !== undefined">
+                阈值: {{ row.metrics.threshold.toFixed(2) }}
               </div>
             </div>
             <span v-else class="text-muted">无数据</span>
           </template>
         </el-table-column>
         
-        <el-table-column prop="status" label="状态" width="100">
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="getStatusColor(row.status)" size="small">
-              {{ getStatusName(row.status) }}
+            <el-tag :type="row.is_acknowledged ? 'success' : 'warning'" size="small">
+              {{ row.is_acknowledged ? '已确认' : '未确认' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -223,29 +221,49 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="handleViewDetail(row)">详情</el-button>
-            <el-button 
-              size="small" 
-              type="primary" 
-              @click="handleMarkRead(row)"
-              :disabled="row.status !== 'unread'"
-            >
-              标记已读
-            </el-button>
-            <el-dropdown @command="(command) => handleAction(command, row)">
-              <el-button size="small">
-                更多<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-              </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item command="handle">标记已处理</el-dropdown-item>
-                  <el-dropdown-item command="ignore">忽略</el-dropdown-item>
-                  <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+            <div class="action-buttons">
+              <el-button-group>
+                <el-button 
+                  size="small" 
+                  @click="handleViewDetail(row)"
+                  title="查看详情"
+                >
+                  <el-icon><View /></el-icon>
+                </el-button>
+                <el-button 
+                  size="small" 
+                  type="primary" 
+                  @click="handleMarkRead(row)"
+                  :disabled="row.is_acknowledged"
+                  title="标记确认"
+                >
+                  <el-icon><Check /></el-icon>
+                </el-button>
+              </el-button-group>
+              <el-dropdown @command="(command) => handleAction(command, row)" trigger="click">
+                <el-button size="small" title="更多操作">
+                  <el-icon><MoreFilled /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="handle">
+                      <el-icon><Check /></el-icon>
+                      标记已处理
+                    </el-dropdown-item>
+                    <el-dropdown-item command="ignore">
+                      <el-icon><Warning /></el-icon>
+                      忽略
+                    </el-dropdown-item>
+                    <el-dropdown-item command="delete" divided class="danger-item">
+                      <el-icon><Delete /></el-icon>
+                      删除
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -284,9 +302,9 @@
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="处理状态">
-            <el-tag :type="getStatusColor(currentAlarm.status)">
-              {{ getStatusName(currentAlarm.status) }}
-            </el-tag>
+            <el-tag :type="currentAlarm.is_acknowledged ? 'success' : 'warning'">
+                  {{ currentAlarm.is_acknowledged ? '已确认' : '未确认' }}
+                </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="设备名称">{{ currentAlarm.device_name }}</el-descriptions-item>
           <el-descriptions-item label="设备位置">{{ currentAlarm.device_location || '未设置' }}</el-descriptions-item>
@@ -341,7 +359,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   Search, Refresh, Check, Delete, Bell, Warning, Calendar, DataBoard, 
-  Picture, ArrowDown 
+  Picture, ArrowDown, View, MoreFilled 
 } from '@element-plus/icons-vue'
 import { diagnosisAlarmApi, type DiagnosisAlarm } from '@/api/diagnosis'
 import { formatDateTime } from '@/utils/date'
@@ -361,8 +379,8 @@ const total = ref(0)
 const searchForm = reactive({
   search: '',
   alarm_type: '',
-  level: '',
-  status: '',
+  severity: '',
+  is_acknowledged: null as boolean | null,
   start_time: '',
   end_time: ''
 })
@@ -434,28 +452,8 @@ const getLevelColor = (level: string) => {
   return colorMap[level] || 'info'
 }
 
-const getStatusName = (status: string) => {
-  const statusMap: Record<string, string> = {
-    unread: '未读',
-    read: '已读',
-    handled: '已处理',
-    ignored: '已忽略'
-  }
-  return statusMap[status] || status
-}
-
-const getStatusColor = (status: string) => {
-  const colorMap: Record<string, string> = {
-    unread: 'danger',
-    read: 'primary',
-    handled: 'success',
-    ignored: 'info'
-  }
-  return colorMap[status] || 'info'
-}
-
 const getRowClassName = ({ row }: { row: DiagnosisAlarm }) => {
-  if (row.status === 'unread') {
+  if (!row.is_acknowledged) {
     return 'unread-row'
   }
   return ''
@@ -479,9 +477,9 @@ const loadAlarms = async () => {
     })
     
     const response = await diagnosisAlarmApi.getAlarms(params)
-    alarms.value = response.data || []
-    // 后端返回的是数组，不是分页格式，所以total设置为数组长度
-    total.value = (response.data || []).length
+    // 后端返回的是分页格式 {items: [...], total: ...}
+    alarms.value = response.data?.items || []
+    total.value = response.data?.total || 0
     
     // 更新统计数据
     updateStats()
@@ -496,8 +494,8 @@ const loadAlarms = async () => {
 const updateStats = () => {
   const today = new Date().toDateString()
   stats.value = {
-    unread_count: alarms.value.filter(a => a.status === 'unread').length,
-    critical_count: alarms.value.filter(a => a.level === 'critical').length,
+    unread_count: alarms.value.filter(a => !a.is_acknowledged).length,
+    critical_count: alarms.value.filter(a => a.severity === 'critical').length,
     today_count: alarms.value.filter(a => new Date(a.created_at).toDateString() === today).length,
     total_count: alarms.value.length
   }
@@ -551,59 +549,54 @@ const handleViewDetail = (alarm: DiagnosisAlarm) => {
   currentAlarm.value = alarm
   detailVisible.value = true
   
-  // 如果是未读状态，自动标记为已读
-  if (alarm.status === 'unread') {
+  // 如果是未确认状态，自动标记为已确认
+  if (!alarm.is_acknowledged) {
     handleMarkRead(alarm)
   }
 }
 
 const handleMarkRead = async (alarm: DiagnosisAlarm) => {
   try {
-    await diagnosisAlarmApi.updateAlarmStatus(alarm.id, 'read')
-    alarm.status = 'read'
-    ElMessage.success('已标记为已读')
+    await diagnosisAlarmApi.acknowledgeAlarm(alarm.id)
+    alarm.is_acknowledged = true
+    ElMessage.success('已标记为确认')
     updateStats()
   } catch (error) {
-    console.error('标记已读失败:', error)
+    console.error('标记确认失败:', error)
     ElMessage.error('操作失败')
   }
 }
 
 const handleMarkAllRead = async () => {
   try {
-    const unreadIds = selectedAlarms.value
-      .filter(alarm => alarm.status === 'unread')
+    const unacknowledgedIds = selectedAlarms.value
+      .filter(alarm => !alarm.is_acknowledged)
       .map(alarm => alarm.id)
     
-    if (unreadIds.length === 0) {
-      ElMessage.warning('没有未读告警需要标记')
+    if (unacknowledgedIds.length === 0) {
+      ElMessage.warning('没有未确认告警需要标记')
       return
     }
     
-    await diagnosisAlarmApi.batchUpdateStatus(unreadIds, 'read')
+    await diagnosisAlarmApi.batchAcknowledge(unacknowledgedIds)
     
     // 更新本地状态
     selectedAlarms.value.forEach(alarm => {
-      if (alarm.status === 'unread') {
-        alarm.status = 'read'
+      if (!alarm.is_acknowledged) {
+        alarm.is_acknowledged = true
       }
     })
     
-    ElMessage.success(`已标记 ${unreadIds.length} 条告警为已读`)
+    ElMessage.success(`已确认 ${unacknowledgedIds.length} 条告警`)
     updateStats()
   } catch (error) {
-    console.error('批量标记已读失败:', error)
+    console.error('批量确认失败:', error)
     ElMessage.error('操作失败')
   }
 }
 
 const handleAction = async (command: string, alarm: DiagnosisAlarm) => {
   try {
-    let statusMap: Record<string, string> = {
-      handle: 'handled',
-      ignore: 'ignored'
-    }
-    
     if (command === 'delete') {
       await ElMessageBox.confirm(
         `确定要删除告警 "${alarm.title}" 吗？`,
@@ -618,11 +611,16 @@ const handleAction = async (command: string, alarm: DiagnosisAlarm) => {
       await diagnosisAlarmApi.deleteAlarm(alarm.id)
       ElMessage.success('删除成功')
       loadAlarms()
+    } else if (command === 'handle') {
+      await diagnosisAlarmApi.updateAlarmStatus(alarm.id, { status: 'handled' })
+      alarm.is_acknowledged = true
+      ElMessage.success('已标记为已处理')
+    } else if (command === 'ignore') {
+      await diagnosisAlarmApi.updateAlarmStatus(alarm.id, { status: 'ignored' })
+      alarm.is_acknowledged = true
+      ElMessage.success('已忽略告警')
     } else {
-      await diagnosisAlarmApi.updateAlarmStatus(alarm.id, statusMap[command])
-      alarm.status = statusMap[command]
-      ElMessage.success('操作成功')
-      updateStats()
+      ElMessage.warning('该操作暂不支持')
     }
   } catch (error: any) {
     if (error !== 'cancel') {
@@ -866,7 +864,25 @@ onMounted(() => {
 .media-list {
   display: flex;
   flex-direction: column;
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
   gap: 8px;
+}
+
+.action-buttons .el-button-group {
+  margin-right: 0;
+}
+
+.action-buttons .el-button {
+  padding: 5px 8px;
+}
+
+.action-buttons .el-dropdown .el-button {
+  padding: 5px 8px;
+  min-width: 28px;
 }
 
 .media-item {
@@ -884,5 +900,60 @@ onMounted(() => {
   background: #e4e7ed;
   padding: 2px 6px;
   border-radius: 2px;
+}
+
+/* 操作按钮颜色样式 */
+.action-buttons .el-button-group .el-button:first-child {
+  color: #409eff;
+  border-color: #c6e2ff;
+  background-color: #ecf5ff;
+}
+
+.action-buttons .el-button-group .el-button:first-child:hover {
+  color: #fff;
+  background-color: #409eff;
+  border-color: #409eff;
+}
+
+.action-buttons .el-button-group .el-button:last-child {
+  color: #67c23a;
+  border-color: #c2e7b0;
+  background-color: #f0f9ff;
+}
+
+.action-buttons .el-button-group .el-button:last-child:hover {
+  color: #fff;
+  background-color: #67c23a;
+  border-color: #67c23a;
+}
+
+.action-buttons .el-dropdown .el-button {
+  color: #909399;
+  border-color: #dcdfe6;
+  background-color: #f5f7fa;
+}
+
+.action-buttons .el-dropdown .el-button:hover {
+  color: #409eff;
+  border-color: #c6e2ff;
+  background-color: #ecf5ff;
+}
+
+/* 删除按钮危险样式 */
+.el-dropdown-menu .danger-item {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item:hover {
+  background-color: #fef0f0 !important;
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item .el-icon {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item span {
+  color: #f56c6c !important;
 }
 </style>

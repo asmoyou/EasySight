@@ -10,8 +10,8 @@ class WorkerConfig(BaseSettings):
     node_name: str = "worker-node"
     
     # Worker池配置
-    worker_pool_size: int = 3
-    max_concurrent_tasks: int = 3
+    worker_pool_size: int = 12
+    max_concurrent_tasks: int = 12
     
     # 主节点连接配置
     master_host: str = "localhost"

@@ -7,6 +7,14 @@
         <p class="page-description">管理视频质量诊断任务，支持多种检测类型和调度配置</p>
       </div>
       <div class="header-right">
+        <el-button 
+          type="danger" 
+          :disabled="selectedTasks.length === 0"
+          @click="handleBatchDelete"
+        >
+          <el-icon><Delete /></el-icon>
+          批量删除 ({{ selectedTasks.length }})
+        </el-button>
         <el-button type="primary" @click="handleCreate">
           <el-icon><Plus /></el-icon>
           创建任务
@@ -93,10 +101,10 @@
           </template>
         </el-table-column>
         
-        <el-table-column prop="diagnosis_type" label="诊断类型" width="120">
+        <el-table-column prop="diagnosis_types" label="诊断类型" width="120">
           <template #default="{ row }">
-            <el-tag :type="getDiagnosisTypeColor(row.diagnosis_type)" size="small">
-              {{ getDiagnosisTypeName(row.diagnosis_type) }}
+            <el-tag :type="getDiagnosisTypeColor(row.diagnosis_types?.[0])" size="small">
+              {{ getDiagnosisTypeName(row.diagnosis_types?.[0]) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -149,19 +157,36 @@
         
         <el-table-column prop="created_by_name" label="创建人" width="100" />
         
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="handleView(row)">查看</el-button>
-            <el-button size="small" type="primary" @click="handleEdit(row)">编辑</el-button>
-            <el-button 
-              size="small" 
-              type="success" 
-              @click="handleRun(row)"
-              :disabled="row.status === 'running'"
-            >
-              执行
-            </el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            <div class="action-buttons">
+              <el-button-group>
+                <el-button size="small" @click="handleView(row)">
+                  <el-icon><View /></el-icon>
+                </el-button>
+                <el-button size="small" type="primary" @click="handleEdit(row)">
+                  <el-icon><Edit /></el-icon>
+                </el-button>
+                <el-button 
+                  size="small" 
+                  type="success" 
+                  @click="handleRun(row)"
+                  :disabled="row.status === 'running'"
+                >
+                  <el-icon><VideoPlay /></el-icon>
+                </el-button>
+              </el-button-group>
+              <el-dropdown trigger="click" @command="(command) => handleDropdownCommand(command, row)">
+                <el-button size="small" type="info">
+                  <el-icon><MoreFilled /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="delete" :icon="Delete" class="danger-item">删除</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -198,7 +223,12 @@
         </el-form-item>
         
         <el-form-item label="诊断类型" prop="diagnosis_type">
-          <el-select v-model="formData.diagnosis_type" placeholder="请选择诊断类型" style="width: 100%">
+          <el-select 
+            v-model="formData.diagnosis_type" 
+            placeholder="请选择诊断类型" 
+            style="width: 100%"
+            :key="`diagnosis-${currentTaskId}`"
+          >
             <el-option label="亮度检测" value="brightness" />
             <el-option label="蓝屏检查" value="blue_screen" />
             <el-option label="清晰度检查" value="clarity" />
@@ -214,7 +244,12 @@
         </el-form-item>
         
         <el-form-item label="目标摄像头" prop="target_id">
-          <el-select v-model="formData.target_id" placeholder="请选择摄像头" style="width: 100%">
+          <el-select 
+            v-model="formData.target_id" 
+            placeholder="请选择摄像头" 
+            style="width: 100%"
+            :key="`camera-${currentTaskId}`"
+          >
             <el-option
               v-for="camera in cameras"
               :key="camera.id"
@@ -225,7 +260,13 @@
         </el-form-item>
         
         <el-form-item label="诊断模板">
-          <el-select v-model="formData.template_id" placeholder="选择模板（可选）" clearable style="width: 100%">
+          <el-select 
+            v-model="formData.template_id" 
+            placeholder="选择模板（可选）" 
+            clearable 
+            style="width: 100%"
+            :key="`template-${currentTaskId}`"
+          >
             <el-option
               v-for="template in templates"
               :key="template.id"
@@ -266,10 +307,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Refresh, Plus, Clock, Minus } from '@element-plus/icons-vue'
+import { Search, Refresh, Plus, Clock, Minus, View, Edit, VideoPlay, MoreFilled, Delete } from '@element-plus/icons-vue'
 import { diagnosisTaskApi, diagnosisTemplateApi, type DiagnosisTask, type DiagnosisTaskCreate, DiagnosisType, TaskStatus } from '@/api/diagnosis'
 import { cameraApi, type Camera } from '@/api/cameras'
 import { formatDateTime } from '@/utils/date'
@@ -303,12 +344,13 @@ const searchForm = reactive({
 const dialogVisible = ref(false)
 const dialogMode = ref<'create' | 'edit'>('create')
 const currentTask = ref<DiagnosisTask | null>(null)
+const currentTaskId = ref<number | null>(null)
 
 // 表单数据
 const formData = ref<DiagnosisTaskCreate>({
   name: '',
   diagnosis_type: DiagnosisType.BRIGHTNESS,
-  target_id: undefined,
+  target_id: 0,
   target_type: 'camera',
   template_id: undefined,
   config: {},
@@ -406,9 +448,9 @@ const loadTasks = async () => {
     })
     
     const response = await diagnosisTaskApi.getTasks(params)
-    tasks.value = response.data || []
-    // 后端返回的是数组，不是分页格式，所以total设置为数组长度
-    total.value = (response.data || []).length
+    const data = response.data
+    tasks.value = data?.tasks || []
+    total.value = data?.total || 0
   } catch (error) {
     console.error('加载任务列表失败:', error)
     ElMessage.error('加载任务列表失败')
@@ -428,10 +470,25 @@ const loadCameras = async () => {
 
 const loadTemplates = async () => {
   try {
+    console.log('开始加载模板数据...')
     const response = await diagnosisTemplateApi.getTemplates({ page_size: 100 })
-    templates.value = response.data || []
+    console.log('API响应:', response)
+    console.log('响应数据:', response.data)
+    
+    // 后端返回的数据结构是 { items: [], total: number, ... }
+    if (response.data && response.data.items) {
+      templates.value = response.data.items
+      console.log('成功加载模板:', templates.value.length, '个')
+      console.log('模板列表:', templates.value)
+    } else {
+      templates.value = []
+      console.warn('未找到模板数据或数据格式不正确')
+    }
   } catch (error) {
     console.error('加载模板列表失败:', error)
+    console.error('错误详情:', error.response || error.message)
+    ElMessage.error('加载模板列表失败: ' + (error.message || '未知错误'))
+    templates.value = []
   }
 }
 
@@ -470,32 +527,59 @@ const handleSelectionChange = (selection: DiagnosisTask[]) => {
 const handleCreate = () => {
   dialogMode.value = 'create'
   currentTask.value = null
+  currentTaskId.value = null
   resetForm()
   dialogVisible.value = true
 }
 
-const handleEdit = (task: DiagnosisTask) => {
+const handleEdit = async (task: DiagnosisTask) => {
   dialogMode.value = 'edit'
   currentTask.value = task
+  currentTaskId.value = task.id
+  
+  console.log('原始任务数据 - name:', task.name, 'diagnosis_type:', task.diagnosis_type, 'target_id:', task.target_id, 'template_id:', task.template_id)
+  
+  // 确保相机列表已加载
+  if (cameras.value.length === 0) {
+    console.log('相机列表为空，重新加载相机数据')
+    await loadCameras()
+  }
+  
+  // 重置表单数据
+  // 处理诊断类型：可能是单个值或数组的第一个元素
+  const diagnosisType = task.diagnosis_type || (task.diagnosis_types && task.diagnosis_types[0]) || DiagnosisType.BRIGHTNESS
+  
   formData.value = {
     name: task.name,
-    diagnosis_type: task.diagnosis_type,
-    target_id: task.target_id,
+    diagnosis_type: diagnosisType as DiagnosisType,
+    target_id: task.target_id !== null && task.target_id !== undefined && !isNaN(Number(task.target_id)) ? Number(task.target_id) : null,
     target_type: task.target_type,
-    template_id: task.template_id || undefined, // 确保正确设置模板ID
+    template_id: task.template_id || undefined,
     config: task.config || {},
     schedule_config: task.schedule_config || {},
     threshold_config: task.threshold_config || {},
     is_scheduled: task.is_scheduled || false,
     description: task.description || ''
   }
+  
   if (task.schedule_config?.cron_expression) {
     scheduleConfig.value.cron_expression = task.schedule_config.cron_expression
   } else {
     scheduleConfig.value.cron_expression = '0 0 * * *'
   }
-  console.log('编辑任务数据:', formData.value) // 调试日志
+  
+  console.log('设置后的formData - name:', formData.value.name, 'diagnosis_type:', formData.value.diagnosis_type, 'target_id:', formData.value.target_id)
+  
+  // 等待DOM更新后再显示对话框
+  await nextTick()
   dialogVisible.value = true
+  
+  // 再次确保数据正确设置并强制更新选择框
+  await nextTick()
+  console.log('对话框打开后的formData - target_id:', formData.value.target_id)
+  
+  // 强制更新选择框显示
+  await nextTick()
 }
 
 const handleView = (task: DiagnosisTask) => {
@@ -548,17 +632,91 @@ const handleDelete = async (task: DiagnosisTask) => {
   }
 }
 
+const handleBatchDelete = async () => {
+  if (selectedTasks.value.length === 0) {
+    ElMessage.warning('请先选择要删除的任务')
+    return
+  }
+  
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除选中的 ${selectedTasks.value.length} 个诊断任务吗？`,
+      '确认批量删除',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    const taskIds = selectedTasks.value.map(task => task.id)
+    const response = await diagnosisTaskApi.batchDeleteTasks(taskIds)
+    
+    if (response.data.deleted_count > 0) {
+      ElMessage.success(`成功删除 ${response.data.deleted_count} 个任务`)
+    }
+    
+    if (response.data.not_found_ids.length > 0) {
+      ElMessage.warning(`${response.data.not_found_ids.length} 个任务未找到或已被删除`)
+    }
+    
+    selectedTasks.value = []
+    loadTasks()
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      console.error('批量删除任务失败:', error)
+      ElMessage.error('批量删除失败')
+    }
+  }
+}
+
 const handleToggleActive = async (task: DiagnosisTask) => {
   try {
-    task.switching = true
-    await diagnosisTaskApi.toggleTask(task.id, task.is_active)
-    ElMessage.success(task.is_active ? '任务已启用' : '任务已禁用')
+    console.log('切换任务状态:', task.id, '前端显示状态:', task.is_active, '将传递给后端:', task.is_active)
+    
+    // 修复：直接传递当前的is_active状态，而不是取反
+    // 因为前端显示的状态与数据库状态相反，所以直接传递当前状态就是正确的目标状态
+    const newStatus = task.is_active
+    const response = await diagnosisTaskApi.toggleTask(task.id, newStatus)
+    console.log('API响应:', response)
+    
+    // 立即更新本地状态，确保UI响应
+    const index = tasks.value.findIndex(t => t.id === task.id)
+    if (index !== -1) {
+      console.log('更新前状态:', tasks.value[index].is_active)
+      // 修复：由于我们传递的是当前状态，所以本地状态应该取反
+      tasks.value[index].is_active = !task.is_active
+      console.log('更新后状态:', tasks.value[index].is_active)
+      
+      // 如果API返回了完整的任务数据，则使用API数据
+      if (response.data && response.data.is_active !== undefined) {
+        tasks.value[index] = { ...tasks.value[index], ...response.data }
+        console.log('使用API返回数据更新:', response.data)
+      }
+    }
+    
+    ElMessage.success(newStatus ? '任务已启用' : '任务已禁用')
+    
+    console.log('状态切换完成，当前任务列表状态:')
+    tasks.value.forEach(t => {
+      if (t.id === task.id) {
+        console.log(`任务 ${t.id}: ${t.is_active ? '启用' : '禁用'}`)
+      }
+    })
   } catch (error) {
     console.error('切换任务状态失败:', error)
     ElMessage.error('操作失败')
-    task.is_active = !task.is_active // 回滚状态
-  } finally {
-    task.switching = false
+    
+    // 发生错误时重新加载任务列表
+    await loadTasks()
+  }
+}
+
+const handleDropdownCommand = (command: string, task: DiagnosisTask) => {
+  switch (command) {
+    case 'delete':
+      handleDelete(task)
+      break
   }
 }
 
@@ -577,8 +735,17 @@ const handleSave = async () => {
     await formRef.value?.validate()
     saving.value = true
     
+    // 无论是否开启定时任务，都要保存 cron 表达式配置
+    // 这样用户配置的 cron 表达式不会丢失
     if (formData.value.is_scheduled) {
       formData.value.schedule_config = {
+        cron_expression: scheduleConfig.value.cron_expression
+      }
+    } else {
+      // 即使没有开启定时任务，也要保存 cron 表达式到 schedule_config
+      // 这样下次开启定时任务时，之前配置的表达式仍然有效
+      formData.value.schedule_config = {
+        ...formData.value.schedule_config,
         cron_expression: scheduleConfig.value.cron_expression
       }
     }
@@ -609,7 +776,7 @@ const resetForm = () => {
   formData.value = {
     name: '',
     diagnosis_type: DiagnosisType.BRIGHTNESS,
-    target_id: undefined,
+    target_id: 0,
     target_type: 'camera',
     template_id: undefined,
     config: {},
@@ -707,5 +874,43 @@ onMounted(() => {
   font-size: 12px;
   color: #999;
   margin-top: 4px;
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.action-buttons .el-button-group {
+  display: flex;
+}
+
+.action-buttons .el-button {
+  min-width: auto;
+  padding: 5px 8px;
+}
+
+.action-buttons .el-dropdown .el-button {
+  padding: 5px 8px;
+}
+
+/* 删除按钮危险样式 */
+.el-dropdown-menu .danger-item {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item:hover {
+  background-color: #fef0f0 !important;
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item .el-icon {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item span {
+  color: #f56c6c !important;
 }
 </style>

@@ -178,7 +178,7 @@ async def upload_model_file(
 async def install_algorithm_package(
     package_data: Dict[str, Any],
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     """安装算法包"""
     try:
@@ -189,22 +189,25 @@ async def install_algorithm_package(
         # 创建算法记录
         algorithm = AIAlgorithm(
             name=package_info.get("name", ""),
+            code=package_info.get("code", f"{package_info.get('name', 'algorithm')}-{package_info.get('version', '1.0.0')}"),
             version=package_info.get("version", "1.0.0"),
-            type=package_info.get("type", "custom"),
+            algorithm_type=package_info.get("algorithm_type", "custom"),
             description=package_info.get("description", ""),
             author=package_info.get("author", current_user.username),
             tags=package_info.get("tags", []),
             config_schema=package_info.get("config_schema", {}),
-            package_url=file_url,
-            entry_point=package_info.get("entry_point", "main.py"),
-            dependencies=package_info.get("dependencies", []),
-            created_by=current_user.id,
+            file_path=file_url,  # 修复字段名：package_url -> file_path
+            input_format=package_info.get("input_format", {}),
+            output_format=package_info.get("output_format", {}),
+            performance_metrics=package_info.get("performance_metrics", {}),
+            resource_requirements=package_info.get("resource_requirements", {}),
+            supported_platforms=package_info.get("supported_platforms", []),
             is_active=True
         )
         
         db.add(algorithm)
-        db.commit()
-        db.refresh(algorithm)
+        await db.commit()
+        await db.refresh(algorithm)
         
         return {
             "message": "算法包安装成功",
@@ -217,6 +220,6 @@ async def install_algorithm_package(
         }
         
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         logger.error(f"Algorithm package installation error: {e}")
         raise HTTPException(status_code=500, detail="算法包安装失败")

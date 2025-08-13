@@ -19,7 +19,7 @@ class AlarmRuleCreate(BaseModel):
     diagnosis_types: List[str] = Field(default=[], description="适用的诊断类型")
     camera_ids: List[int] = Field(default=[], description="适用的摄像头ID列表")
     camera_groups: List[str] = Field(default=[], description="适用的摄像头组")
-    severity_levels: List[str] = Field(default=[], description="触发的严重程度级别")
+    severity_level: str = Field(description="触发的严重程度级别")
     threshold_config: Dict[str, Any] = Field(default={}, description="阈值配置")
     frequency_limit: int = Field(default=0, description="频率限制(分钟内最多触发次数)")
     notification_channels: List[int] = Field(default=[], description="通知渠道ID列表")
@@ -33,7 +33,7 @@ class AlarmRuleUpdate(BaseModel):
     diagnosis_types: Optional[List[str]] = Field(None, description="适用的诊断类型")
     camera_ids: Optional[List[int]] = Field(None, description="适用的摄像头ID列表")
     camera_groups: Optional[List[str]] = Field(None, description="适用的摄像头组")
-    severity_levels: Optional[List[str]] = Field(None, description="触发的严重程度级别")
+    severity_level: Optional[str] = Field(None, description="触发的严重程度级别")
     threshold_config: Optional[Dict[str, Any]] = Field(None, description="阈值配置")
     frequency_limit: Optional[int] = Field(None, description="频率限制")
     notification_channels: Optional[List[int]] = Field(None, description="通知渠道ID列表")
@@ -48,7 +48,7 @@ class AlarmRuleResponse(BaseModel):
     diagnosis_types: List[str]
     camera_ids: List[int]
     camera_groups: List[str]
-    severity_levels: List[str]
+    severity_level: str
     threshold_config: Dict[str, Any]
     frequency_limit: int
     notification_channels: List[int]

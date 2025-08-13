@@ -55,7 +55,7 @@
               </div>
               <div class="stat-info">
                 <div class="stat-value">{{ nodeStats?.totalConnections || 0 }}</div>
-                <div class="stat-label">总连接数</div>
+                <div class="stat-label">总观看数</div>
               </div>
             </div>
           </el-card>
@@ -125,7 +125,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="连接数" width="120">
+        <el-table-column label="观看数" width="120">
           <template #default="{ row }">
             <span>{{ row.current_connections || 0 }}/{{ row.max_connections }}</span>
           </template>
@@ -161,22 +161,42 @@
           </template>
         </el-table-column>
         <el-table-column prop="description" label="描述" show-overflow-tooltip />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button
-              type="primary"
-              size="small"
-              @click="showEditDialog(row)"
-            >
-              编辑
-            </el-button>
-            <el-button
-              type="danger"
-              size="small"
-              @click="deleteNode(row)"
-            >
-              删除
-            </el-button>
+            <div class="action-buttons">
+              <el-button-group>
+                <el-button
+                  type="info"
+                  size="small"
+                  :icon="View"
+                  @click="showStreamDetails(row)"
+                  :disabled="!row.is_online"
+                  title="流详情"
+                />
+                <el-button
+                  type="primary"
+                  size="small"
+                  :icon="Edit"
+                  @click="showEditDialog(row)"
+                  title="编辑"
+                />
+              </el-button-group>
+              <el-dropdown @command="(command) => handleDropdownCommand(command, row)">
+                <el-button
+                  type="primary"
+                  size="small"
+                  :icon="MoreFilled"
+                  title="更多操作"
+                />
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="delete" :icon="Delete" class="danger-item">
+                      删除
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -247,6 +267,125 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 流详情对话框 -->
+    <el-dialog
+      title="节点流详情"
+      v-model="streamDialogVisible"
+      width="1200px"
+      :close-on-click-modal="false"
+    >
+      <div v-loading="streamLoading">
+        <div v-if="streamData" class="stream-details">
+          <!-- 节点信息 -->
+          <el-card class="node-info-card" shadow="never">
+            <template #header>
+              <div class="card-header">
+                <span>节点信息</span>
+              </div>
+            </template>
+            <el-row :gutter="20">
+              <el-col :span="6">
+                <div class="info-item">
+                  <label>节点名称:</label>
+                  <span>{{ streamData.proxy_name }}</span>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="info-item">
+                  <label>服务地址:</label>
+                  <span>{{ streamData.proxy_address }}</span>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="info-item">
+                  <label>ZLM地址:</label>
+                  <span>{{ streamData.zlm_address }}</span>
+                </div>
+              </el-col>
+              <el-col :span="6">
+                <div class="info-item">
+                  <label>总流数:</label>
+                  <span>{{ streamData.total_streams }}</span>
+                </div>
+              </el-col>
+            </el-row>
+          </el-card>
+
+          <!-- 流列表 -->
+          <el-card class="streams-card" shadow="never">
+            <template #header>
+              <div class="card-header">
+                <span>活动流列表</span>
+                <el-tag type="info">共 {{ streamData.total_streams }} 个流</el-tag>
+              </div>
+            </template>
+            
+            <el-table
+              :data="streamData.streams"
+              stripe
+              style="width: 100%"
+              max-height="400"
+            >
+              <el-table-column prop="camera_name" label="摄像头" width="150" />
+              <el-table-column prop="stream" label="流ID" width="200" show-overflow-tooltip />
+              <el-table-column prop="app" label="应用" width="80" />
+              <el-table-column prop="schema" label="协议" width="80" />
+              <el-table-column label="观看人数" width="100">
+                <template #default="{ row }">
+                  <span>{{ row.readerCount }}/{{ row.totalReaderCount }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="传输速度" width="120">
+                <template #default="{ row }">
+                  <span>{{ formatBytesSpeed(row.bytesSpeed) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="运行时长" width="120">
+                <template #default="{ row }">
+                  <span>{{ formatDuration(row.aliveSecond) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="来源类型" width="120">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="row.originType === 0 ? 'success' : 'info'">
+                    {{ row.originTypeStr || '未知' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="轨道信息" min-width="200">
+                <template #default="{ row }">
+                  <div v-if="row.tracks && row.tracks.length > 0">
+                    <el-tag
+                      v-for="(track, index) in row.tracks"
+                      :key="index"
+                      size="small"
+                      class="track-tag"
+                      :type="track.codec_type === 0 ? 'primary' : 'warning'"
+                    >
+                      {{ track.codec_type === 0 ? '视频' : '音频' }}: {{ track.codec_id_name || 'Unknown' }}
+                    </el-tag>
+                  </div>
+                  <span v-else>无轨道信息</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-card>
+        </div>
+        
+        <div v-else-if="!streamLoading" class="no-data">
+          <el-empty description="暂无流数据" />
+        </div>
+      </div>
+      
+      <template #footer>
+        <el-button @click="streamDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="showStreamDetails(currentNode!)" v-if="currentNode">
+          <el-icon><Refresh /></el-icon>
+          刷新
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -259,7 +398,11 @@ import {
   Connection,
   Monitor,
   Link,
-  DataAnalysis
+  DataAnalysis,
+  View,
+  Edit,
+  Delete,
+  MoreFilled
 } from '@element-plus/icons-vue'
 import { formatDateTime } from '@/utils/date'
 import { mediaProxyApi } from '@/api/cameras'
@@ -286,6 +429,11 @@ const searchForm = reactive({
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const currentNode = ref<MediaNode | null>(null)
+
+// 流详情对话框相关
+const streamDialogVisible = ref(false)
+const streamLoading = ref(false)
+const streamData = ref<any>(null)
 
 // 表单相关
 const formRef = ref<FormInstance>()
@@ -469,10 +617,65 @@ const deleteNode = async (node: MediaNode) => {
   }
 }
 
+// 下拉菜单处理
+const handleDropdownCommand = (command: string, node: MediaNode) => {
+  if (command === 'delete') {
+    deleteNode(node)
+  }
+}
+
 const getProgressColor = (percentage: number) => {
   if (percentage < 50) return '#67c23a'
   if (percentage < 80) return '#e6a23c'
   return '#f56c6c'
+}
+
+// 显示流详情
+const showStreamDetails = async (node: MediaNode) => {
+  if (!node.is_online) {
+    ElMessage.warning('节点离线，无法获取流详情')
+    return
+  }
+  
+  currentNode.value = node
+  streamDialogVisible.value = true
+  streamLoading.value = true
+  streamData.value = null
+  
+  try {
+    const response = await mediaProxyApi.getMediaProxyStreams(node.id)
+    // 后端返回的数据结构是 {code, message, data}，需要访问 data 字段
+    streamData.value = response.data.data
+  } catch (error: any) {
+    ElMessage.error(error.message || '获取流详情失败')
+    streamDialogVisible.value = false
+  } finally {
+    streamLoading.value = false
+  }
+}
+
+// 格式化字节速度
+const formatBytesSpeed = (bytes: number) => {
+  if (bytes === 0) return '0 B/s'
+  const k = 1024
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+// 格式化时长
+const formatDuration = (seconds: number) => {
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = seconds % 60
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${secs}s`
+  } else if (minutes > 0) {
+    return `${minutes}m ${secs}s`
+  } else {
+    return `${secs}s`
+  }
 }
 
 // 初始化
@@ -570,6 +773,56 @@ onMounted(() => {
   color: #909399;
 }
 
+/* 流详情对话框样式 */
+.stream-details {
+  .node-info-card {
+    margin-bottom: 20px;
+    
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+    }
+    
+    .info-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+      
+      label {
+        font-weight: 500;
+        color: #606266;
+        margin-right: 8px;
+        min-width: 80px;
+      }
+      
+      span {
+        color: #303133;
+      }
+    }
+  }
+  
+  .streams-card {
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+    }
+    
+    .track-tag {
+      margin-right: 4px;
+      margin-bottom: 2px;
+    }
+  }
+}
+
+.no-data {
+  text-align: center;
+  padding: 40px 0;
+}
+
 .search-card,
 .table-card {
   margin-bottom: 20px;
@@ -601,5 +854,81 @@ onMounted(() => {
 
 :deep(.el-progress-bar__inner) {
   border-radius: 4px;
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-buttons .el-button-group {
+  margin-right: 0;
+}
+
+.action-buttons .el-button {
+  padding: 5px 8px;
+}
+
+.action-buttons .el-dropdown .el-button {
+  padding: 5px 8px;
+  min-width: 28px;
+}
+
+/* 操作按钮颜色样式 */
+.action-buttons .el-button-group .el-button:first-child {
+  color: #409eff;
+  border-color: #c6e2ff;
+  background-color: #ecf5ff;
+}
+
+.action-buttons .el-button-group .el-button:first-child:hover {
+  color: #fff;
+  background-color: #409eff;
+  border-color: #409eff;
+}
+
+.action-buttons .el-button-group .el-button:last-child {
+  color: #e6a23c;
+  border-color: #f5dab1;
+  background-color: #fdf6ec;
+}
+
+.action-buttons .el-button-group .el-button:last-child:hover {
+  color: #fff;
+  background-color: #e6a23c;
+  border-color: #e6a23c;
+}
+
+.action-buttons .el-dropdown .el-button {
+  color: #909399;
+  border-color: #dcdfe6;
+  background-color: #f5f7fa;
+  padding: 5px 8px;
+  min-width: 28px;
+}
+
+.action-buttons .el-dropdown .el-button:hover {
+  color: #409eff;
+  border-color: #c6e2ff;
+  background-color: #ecf5ff;
+}
+
+/* 删除按钮危险样式 */
+.el-dropdown-menu .danger-item {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item:hover {
+  background-color: #fef0f0 !important;
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item .el-icon {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item span {
+  color: #f56c6c !important;
 }
 </style>

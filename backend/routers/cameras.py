@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
 from pydantic import BaseModel
@@ -9,6 +9,7 @@ from database import get_db
 from models.camera import Camera, CameraGroup, MediaProxy, CameraPreset, CameraStatus, CameraType
 from models.user import User
 from routers.auth import get_current_user
+from utils.request_body_parser import parse_and_store_request_body
 
 router = APIRouter()
 
@@ -280,11 +281,22 @@ async def get_cameras(
 
 @router.post("/", response_model=CameraResponse)
 async def create_camera(
+    request: Request,
     camera_data: CameraCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _: dict = Depends(parse_and_store_request_body)
 ):
     """创建摄像头"""
+    # 验证stream_url格式
+    if not (camera_data.stream_url.startswith('rtsp://') or 
+            camera_data.stream_url.startswith('http://') or 
+            camera_data.stream_url.startswith('https://')):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="视频流地址格式不正确，必须以 rtsp://, http:// 或 https:// 开头"
+        )
+    
     # 检查编码是否已存在
     result = await db.execute(select(Camera).where(Camera.code == camera_data.code))
     if result.scalar_one_or_none():
@@ -408,10 +420,12 @@ async def get_camera(
 
 @router.put("/{camera_id}", response_model=CameraResponse)
 async def update_camera(
+    request: Request,
     camera_id: int,
     camera_data: CameraUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    _: dict = Depends(parse_and_store_request_body)
 ):
     """更新摄像头信息"""
     result = await db.execute(select(Camera).where(Camera.id == camera_id))
@@ -788,7 +802,7 @@ async def update_camera_group(
         )
     
     # 验证摄像头ID是否存在
-    if group_data.camera_ids is not None:
+    if group_data.camera_ids is not None and group_data.camera_ids:
         camera_result = await db.execute(select(Camera.id).where(Camera.id.in_(group_data.camera_ids)))
         existing_ids = [row[0] for row in camera_result.all()]
         invalid_ids = set(group_data.camera_ids) - set(existing_ids)
@@ -977,14 +991,134 @@ async def get_camera_preview(
         raise HTTPException(status_code=400, detail="摄像头未配置媒体代理节点或视频编码")
     
     return {
-        "camera_id": camera.id,
-        "camera_code": camera.code,
-        "camera_name": camera.name,
-        "status": camera.status,
-        "stream_url": camera.stream_url,
-        "preview_url": preview_url,
-        "media_proxy_name": camera.media_proxy_name
+        "code": 200,
+        "message": "获取预览地址成功",
+        "success": True,
+        "data": {
+            "camera_id": camera.id,
+            "camera_code": camera.code,
+            "camera_name": camera.name,
+            "status": camera.status,
+            "stream_url": camera.stream_url,
+            "preview_url": preview_url,
+            "media_proxy_name": camera.media_proxy_name
+        }
     }
+
+@router.get("/media-proxies/{proxy_id}/streams")
+async def get_media_proxy_streams(
+    proxy_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取指定媒体代理节点的流列表和转码详情"""
+    import httpx
+    
+    # 查询媒体代理
+    result = await db.execute(select(MediaProxy).where(MediaProxy.id == proxy_id))
+    media_proxy = result.scalar_one_or_none()
+    
+    if not media_proxy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="媒体代理不存在"
+        )
+    
+    if not media_proxy.is_online:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="媒体代理节点离线"
+        )
+    
+    try:
+        # 调用ZLMediaKit的getMediaList接口获取流列表
+        zlm_api_url = f"http://{media_proxy.ip_address}:{media_proxy.zlm_port}/index/api/getMediaList"
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                zlm_api_url,
+                json={
+                    "secret": media_proxy.secret_key or ""
+                }
+            )
+            
+            if response.status_code == 200:
+                result_data = response.json()
+                if result_data.get("code") == 0:
+                    streams = result_data.get("data", [])
+                    
+                    # 获取使用此代理的摄像头信息
+                    camera_result = await db.execute(
+                        select(Camera).where(Camera.media_proxy_id == proxy_id)
+                    )
+                    cameras = camera_result.scalars().all()
+                    camera_map = {camera.code: camera for camera in cameras}
+                    
+                    # 整理流信息
+                    stream_list = []
+                    for stream in streams:
+                        app = stream.get("app", "")
+                        stream_id = stream.get("stream", "")
+                        camera_code = stream_id.replace(".live", "") if stream_id.endswith(".live") else stream_id
+                        camera = camera_map.get(camera_code)
+                        
+                        stream_info = {
+                            "app": app,
+                            "stream": stream_id,
+                            "camera_code": camera_code,
+                            "camera_name": camera.name if camera else "未知摄像头",
+                            "camera_id": camera.id if camera else None,
+                            "schema": stream.get("schema", ""),
+                            "vhost": stream.get("vhost", ""),
+                            "originType": stream.get("originType", ""),
+                            "originTypeStr": stream.get("originTypeStr", ""),
+                            "createStamp": stream.get("createStamp", 0),
+                            "aliveSecond": stream.get("aliveSecond", 0),
+                            "bytesSpeed": stream.get("bytesSpeed", 0),
+                            "readerCount": stream.get("readerCount", 0),
+                            "totalReaderCount": stream.get("totalReaderCount", 0),
+                            "tracks": stream.get("tracks", [])
+                        }
+                        stream_list.append(stream_info)
+                    
+                    return {
+                        "code": 0,
+                        "message": "获取流列表成功",
+                        "data": {
+                            "proxy_id": media_proxy.id,
+                            "proxy_name": media_proxy.name,
+                            "proxy_address": f"{media_proxy.ip_address}:{media_proxy.port}",
+                            "zlm_address": f"{media_proxy.ip_address}:{media_proxy.zlm_port}",
+                            "total_streams": len(stream_list),
+                            "streams": stream_list
+                        }
+                    }
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"获取流列表失败: {result_data.get('msg', '未知错误')}"
+                    )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"ZLMediaKit响应错误: {response.status_code}"
+                )
+                
+    except httpx.TimeoutException:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="ZLMediaKit请求超时"
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"无法连接到ZLMediaKit: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取流列表失败: {str(e)}"
+        )
 
 @router.post("/{camera_id}/stop_stream")
 async def stop_camera_stream(
@@ -994,7 +1128,6 @@ async def stop_camera_stream(
 ):
     """停止摄像头拉流"""
     import httpx
-    from config import settings
     
     # 查询摄像头
     result = await db.execute(select(Camera).where(Camera.id == camera_id))

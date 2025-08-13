@@ -479,9 +479,8 @@ const loadTemplates = async () => {
     })
     
     const response = await diagnosisTemplateApi.getTemplates(params)
-    templates.value = response.data || []
-    // 后端返回的是数组，不是分页格式，所以total设置为数组长度
-    total.value = (response.data || []).length
+    templates.value = response.data?.items || []
+    total.value = response.data?.total || 0
   } catch (error) {
     console.error('加载模板列表失败:', error)
     ElMessage.error('加载模板列表失败')

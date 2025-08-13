@@ -13,7 +13,7 @@ from database import Base
 from config import settings
 from models.user import User, UserSession, UserLoginLog
 from models.camera import Camera, CameraGroup, MediaProxy, CameraPreset
-from models.ai_algorithm import AIAlgorithm, AIService, AIModel, AIServiceLog
+from models.ai_algorithm import AIAlgorithm, AIService, AIModel, AIServiceLog, AITask
 from models.event import Event, EventRule, EventNotification, EventStatistics
 from models.system import SystemConfig, SystemVersion, DataRetentionPolicy, MessageCenter, SystemLog, SystemMetrics, License
 from models.diagnosis import DiagnosisTask, DiagnosisResult, DiagnosisAlarm, DiagnosisTemplate, DiagnosisStatistics

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
@@ -7,10 +7,11 @@ from jose import JWTError, jwt
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
-from database import get_db
+from database import get_db, AsyncSessionLocal
 from models.user import User, UserSession, UserLoginLog
 from models.role import Role, UserRole
 from config import settings
+from request_body_parser import parse_and_store_request_body
 
 router = APIRouter()
 security = HTTPBearer()
@@ -120,15 +121,49 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: AsyncSession = Depends(get_db)):
+async def get_current_user_from_token(token: str) -> Optional[User]:
+    """从token获取用户信息（用于中间件）"""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+        
+        # 获取数据库会话
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(User).where(User.username == username))
+            user = result.scalar_one_or_none()
+            return user
+    except JWTError:
+        return None
+    except Exception:
+        return None
+
+async def get_current_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))
+):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="Not authenticated",
         headers={"WWW-Authenticate": "Bearer"},
     )
     
+    token = None
+    
+    # 首先尝试从Authorization header获取token
+    if credentials:
+        token = credentials.credentials
+    # 如果没有Authorization header，尝试从cookie获取token
+    elif "easysight_token" in request.cookies:
+        token = request.cookies["easysight_token"]
+    
+    if not token:
+        raise credentials_exception
+    
     try:
-        payload = jwt.decode(credentials.credentials, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
@@ -142,17 +177,17 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     return user
 
 @router.post("/login", response_model=LoginResponse)
-async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(login_request: LoginRequest, request: Request, db: AsyncSession = Depends(get_db), _: dict = Depends(parse_and_store_request_body)):
     """用户登录"""
     # 查找用户
-    result = await db.execute(select(User).where(User.username == request.username))
+    result = await db.execute(select(User).where(User.username == login_request.username))
     user = result.scalar_one_or_none()
     
     if not user:
         # 用户不存在，记录登录失败日志
         login_log = UserLoginLog(
             user_id=None,
-            username=request.username,
+            username=login_request.username,
             login_result="failed",
             failure_reason="User not found"
         )
@@ -164,11 +199,11 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
             detail="用户名或密码错误"
         )
     
-    if not user.verify_password(request.password):
+    if not user.verify_password(login_request.password):
         # 密码错误，记录登录失败日志
         login_log = UserLoginLog(
             user_id=user.id,
-            username=request.username,
+            username=login_request.username,
             login_result="failed",
             failure_reason="Invalid password"
         )
@@ -188,7 +223,7 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     
     # 创建访问令牌
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    if request.remember_me:
+    if login_request.remember_me:
         access_token_expires = timedelta(days=7)  # 记住我：7天
     
     access_token = create_access_token(

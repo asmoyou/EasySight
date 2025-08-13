@@ -91,6 +91,34 @@ export const mediaProxyApi = {
   // 删除媒体代理
   deleteMediaProxy(id: number) {
     return request.delete<ApiResponse<{ message: string }>>(`/v1/cameras/media-proxies/${id}`)
+  },
+
+  // 获取媒体代理节点的流列表
+  getMediaProxyStreams(id: number) {
+    return request.get<ApiResponse<{
+      proxy_id: number
+      proxy_name: string
+      proxy_address: string
+      zlm_address: string
+      total_streams: number
+      streams: Array<{
+        app: string
+        stream: string
+        camera_code: string
+        camera_name: string
+        camera_id?: number
+        schema: string
+        vhost: string
+        originType: number
+        originTypeStr: string
+        createStamp: number
+        aliveSecond: number
+        bytesSpeed: number
+        readerCount: number
+        totalReaderCount: number
+        tracks: Array<any>
+      }>
+    }>>(`/v1/cameras/media-proxies/${id}/streams`)
   }
 }
 

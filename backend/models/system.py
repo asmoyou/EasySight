@@ -117,6 +117,7 @@ class SystemLog(Base):
     level = Column(String(20), nullable=False, comment="日志级别")
     module = Column(String(50), comment="模块名称")
     action = Column(String(100), comment="操作动作")
+    page_function = Column(String(200), comment="页面功能描述")
     message = Column(Text, nullable=False, comment="日志消息")
     
     # 详细信息

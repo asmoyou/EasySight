@@ -5,9 +5,9 @@
       <div class="header-left">
         <h1 class="page-title">
           <el-icon><Setting /></el-icon>
-          AI服务管理
+          事件算法服务管理
         </h1>
-        <p class="page-description">管理AI服务实例，配置摄像头点位的AI算法服务</p>
+        <p class="page-description">管理事件检测算法服务实例，配置摄像头点位的事件算法服务</p>
       </div>
       <div class="header-right">
         <el-button type="primary" @click="handleAdd">
@@ -756,6 +756,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
+@import '@/styles/stat-cards.scss';
+
 .ai-services-container {
   padding: 24px;
   background: #f5f5f5;
@@ -796,71 +798,6 @@ onMounted(() => {
 .header-right {
   display: flex;
   gap: 12px;
-}
-
-.stats-cards {
-  margin-bottom: 24px;
-}
-
-.stat-card {
-  display: flex;
-  align-items: center;
-  padding: 20px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
-}
-
-.stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-}
-
-.stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 16px;
-  font-size: 24px;
-  color: white;
-}
-
-.stat-icon.online {
-  background: linear-gradient(135deg, #10b981, #059669);
-}
-
-.stat-icon.total {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-}
-
-.stat-icon.processing {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-}
-
-.stat-icon.success {
-  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
-}
-
-.stat-content {
-  flex: 1;
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: #1f2937;
-  line-height: 1;
-  margin-bottom: 4px;
-}
-
-.stat-label {
-  font-size: 14px;
-  color: #6b7280;
-  font-weight: 500;
 }
 
 .search-filters {

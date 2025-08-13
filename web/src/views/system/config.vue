@@ -15,58 +15,50 @@
 
     <!-- 统计卡片 -->
     <div class="stats-cards" v-if="configStats">
-      <el-row :gutter="20">
+      <el-row :gutter="16">
         <el-col :span="6">
-          <el-card class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon total">
-                <el-icon><Setting /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ configStats.total_configs }}</div>
-                <div class="stat-label">总配置数</div>
-              </div>
+          <div class="stat-card">
+            <div class="stat-icon total">
+              <el-icon><Setting /></el-icon>
             </div>
-          </el-card>
+            <div class="stat-content">
+              <div class="stat-value">{{ configStats.total_configs }}</div>
+              <div class="stat-label">总配置数</div>
+            </div>
+          </div>
         </el-col>
         <el-col :span="6">
-          <el-card class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon public">
-                <el-icon><View /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ configStats.public_configs }}</div>
-                <div class="stat-label">公开配置</div>
-              </div>
+          <div class="stat-card">
+            <div class="stat-icon public">
+              <el-icon><View /></el-icon>
             </div>
-          </el-card>
+            <div class="stat-content">
+              <div class="stat-value">{{ configStats.public_configs }}</div>
+              <div class="stat-label">公开配置</div>
+            </div>
+          </div>
         </el-col>
         <el-col :span="6">
-          <el-card class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon editable">
-                <el-icon><Edit /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ configStats.editable_configs }}</div>
-                <div class="stat-label">可编辑配置</div>
-              </div>
+          <div class="stat-card">
+            <div class="stat-icon editable">
+              <el-icon><Edit /></el-icon>
             </div>
-          </el-card>
+            <div class="stat-content">
+              <div class="stat-value">{{ configStats.editable_configs }}</div>
+              <div class="stat-label">可编辑配置</div>
+            </div>
+          </div>
         </el-col>
         <el-col :span="6">
-          <el-card class="stat-card">
-            <div class="stat-content">
-              <div class="stat-icon categories">
-                <el-icon><FolderOpened /></el-icon>
-              </div>
-              <div class="stat-info">
-                <div class="stat-value">{{ configStats.categories_count }}</div>
-                <div class="stat-label">配置分类</div>
-              </div>
+          <div class="stat-card">
+            <div class="stat-icon categories">
+              <el-icon><FolderOpened /></el-icon>
             </div>
-          </el-card>
+            <div class="stat-content">
+              <div class="stat-value">{{ configStats.categories_count }}</div>
+              <div class="stat-label">配置分类</div>
+            </div>
+          </div>
         </el-col>
       </el-row>
     </div>
@@ -172,26 +164,36 @@
             {{ formatDateTime(row.updated_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button
-              type="primary"
-              size="small"
-              :icon="Edit"
-              @click="showEditDialog(row)"
-              :disabled="!row.is_editable"
-            >
-              编辑
-            </el-button>
-            <el-button
-              type="danger"
-              size="small"
-              :icon="Delete"
-              @click="handleDelete(row)"
-              :disabled="!row.is_editable"
-            >
-              删除
-            </el-button>
+            <div class="action-buttons">
+              <el-button-group>
+                <el-button
+                  type="primary"
+                  size="small"
+                  :icon="Edit"
+                  @click="showEditDialog(row)"
+                  :disabled="!row.is_editable"
+                  title="编辑"
+                />
+              </el-button-group>
+              <el-dropdown @command="(command) => handleDropdownCommand(command, row)" :disabled="!row.is_editable">
+                <el-button
+                  type="primary"
+                  size="small"
+                  :icon="MoreFilled"
+                  title="更多操作"
+                  :disabled="!row.is_editable"
+                />
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="delete" :icon="Delete" class="danger-item">
+                      删除
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -276,7 +278,8 @@ import {
   Delete,
   Setting,
   View,
-  FolderOpened
+  FolderOpened,
+  MoreFilled
 } from '@element-plus/icons-vue'
 import { systemApi } from '@/api/system'
 import type { SystemConfig, SystemConfigCreate, SystemConfigUpdate } from '@/api/system'
@@ -499,6 +502,13 @@ const handleDelete = async (config: SystemConfig) => {
   }
 }
 
+// 下拉菜单处理
+const handleDropdownCommand = (command: string, config: SystemConfig) => {
+  if (command === 'delete') {
+    handleDelete(config)
+  }
+}
+
 const getTypeTagType = (type: string) => {
   const typeMap: Record<string, string> = {
     string: '',
@@ -527,7 +537,7 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .config-container {
   padding: 20px;
 }
@@ -552,64 +562,30 @@ onMounted(() => {
   font-size: 14px;
 }
 
+@import '@/styles/stat-cards.scss';
+
 .stats-cards {
   margin-bottom: 20px;
 }
 
-.stat-card {
-  border: none;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-}
-
-.stat-content {
-  display: flex;
-  align-items: center;
-}
-
-.stat-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 16px;
-  font-size: 24px;
-  color: white;
-}
-
+/* 系统配置页面特有的图标颜色 */
 .stat-icon.total {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
 }
 
 .stat-icon.public {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important;
 }
 
 .stat-icon.editable {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%) !important;
 }
 
 .stat-icon.categories {
-  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%) !important;
 }
 
-.stat-info {
-  flex: 1;
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: 600;
-  color: #303133;
-  line-height: 1;
-  margin-bottom: 4px;
-}
-
-.stat-label {
-  font-size: 14px;
-  color: #909399;
-}
+/* 系统配置页面统计卡片样式已通过 @import 引入，无需额外定义 */
 
 .search-card,
 .table-card {
@@ -626,5 +602,69 @@ onMounted(() => {
   margin-left: 10px;
   color: #909399;
   font-size: 12px;
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-buttons .el-button-group {
+  margin-right: 0;
+}
+
+.action-buttons .el-button {
+  padding: 5px 8px;
+}
+
+.action-buttons .el-dropdown .el-button {
+  padding: 5px 8px;
+  min-width: 28px;
+}
+
+/* 操作按钮颜色样式 */
+.action-buttons .el-button-group .el-button {
+  color: #409eff;
+  border-color: #c6e2ff;
+  background-color: #ecf5ff;
+}
+
+.action-buttons .el-button-group .el-button:hover {
+  color: #fff;
+  background-color: #409eff;
+  border-color: #409eff;
+}
+
+.action-buttons .el-dropdown .el-button {
+  color: #909399;
+  border-color: #dcdfe6;
+  background-color: #f5f7fa;
+  padding: 5px 8px;
+  min-width: 28px;
+}
+
+.action-buttons .el-dropdown .el-button:hover {
+  color: #409eff;
+  border-color: #c6e2ff;
+  background-color: #ecf5ff;
+}
+
+/* 删除按钮危险样式 */
+.el-dropdown-menu .danger-item {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item:hover {
+  background-color: #fef0f0 !important;
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item .el-icon {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item span {
+  color: #f56c6c !important;
 }
 </style>

@@ -81,7 +81,17 @@
         
         <el-table-column prop="module" label="模块" width="120" />
         
-        <el-table-column prop="action" label="操作" width="150" />
+        <el-table-column prop="action" label="操作" width="150">
+          <template #default="{ row }">
+            {{ getActionText(row.action) }}
+          </template>
+        </el-table-column>
+        
+        <el-table-column prop="page_function" label="页面功能" width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.page_function || getDefaultPageFunction(row.module, row.action) }}
+          </template>
+        </el-table-column>
         
         <el-table-column prop="message" label="消息" min-width="300" show-overflow-tooltip />
         
@@ -121,7 +131,10 @@
             <el-tag :type="getLevelTagType(selectedLog.level)">{{ getLevelText(selectedLog.level) }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="模块">{{ selectedLog.module }}</el-descriptions-item>
-          <el-descriptions-item label="操作">{{ selectedLog.action }}</el-descriptions-item>
+          <el-descriptions-item label="操作">{{ getActionText(selectedLog.action) }}</el-descriptions-item>
+          <el-descriptions-item label="页面功能" :span="2">
+            {{ selectedLog.page_function || getDefaultPageFunction(selectedLog.module, selectedLog.action) }}
+          </el-descriptions-item>
           <el-descriptions-item label="用户">{{ selectedLog.user_name || '系统' }}</el-descriptions-item>
           <el-descriptions-item label="用户ID">{{ selectedLog.user_id || '-' }}</el-descriptions-item>
           <el-descriptions-item label="IP地址">{{ selectedLog.ip_address || '-' }}</el-descriptions-item>
@@ -138,8 +151,41 @@
           />
         </div>
         
+        <!-- 请求参数 -->
+        <div v-if="getRequestParams(selectedLog)" class="request-params">
+          <h4>请求参数</h4>
+          <el-descriptions :column="1" border size="small">
+            <el-descriptions-item 
+              v-for="(value, key) in getRequestParams(selectedLog)" 
+              :key="key" 
+              :label="getParamLabel(key)"
+            >
+              <span v-if="typeof value === 'object'">{{ JSON.stringify(value) }}</span>
+              <span v-else>{{ value }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
+        </div>
+        
+        <!-- 响应信息 -->
+        <div v-if="getResponseInfo(selectedLog)" class="response-info">
+          <h4>响应信息</h4>
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="状态码">
+              <el-tag :type="getStatusTagType(getResponseInfo(selectedLog)?.response_status)">
+                {{ getResponseInfo(selectedLog)?.response_status }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="处理时间">
+              {{ getResponseInfo(selectedLog)?.process_time_ms }}ms
+            </el-descriptions-item>
+            <el-descriptions-item label="用户代理" :span="2">
+              {{ getResponseInfo(selectedLog)?.user_agent || '-' }}
+            </el-descriptions-item>
+          </el-descriptions>
+        </div>
+        
         <div v-if="selectedLog.extra_data && Object.keys(selectedLog.extra_data).length > 0" class="extra-data">
-          <h4>额外数据</h4>
+          <h4>完整数据</h4>
           <pre>{{ JSON.stringify(selectedLog.extra_data, null, 2) }}</pre>
         </div>
         
@@ -261,6 +307,143 @@ const getLevelText = (level: string) => {
   return textMap[level] || level
 }
 
+// 获取操作文本
+const getActionText = (action: string) => {
+  const actionMap: Record<string, string> = {
+    'api_request': 'API请求',
+    'create': '创建',
+    'update': '更新',
+    'delete': '删除',
+    'batch_create': '批量创建',
+    'batch_delete': '批量删除',
+    'partial_update': '部分更新',
+    'login': '登录',
+    'logout': '登出',
+    'upload': '上传',
+    'download': '下载',
+    'export': '导出',
+    'import': '导入'
+  }
+  return actionMap[action] || action
+}
+
+// 获取默认页面功能描述
+const getDefaultPageFunction = (module: string, action: string) => {
+  if (action === 'api_request') {
+    const moduleMap: Record<string, string> = {
+      'user': '用户管理',
+      'role': '角色管理', 
+      'camera': '摄像头管理',
+      'ai': 'AI管理',
+      'event': '事件管理',
+      'system': '系统管理',
+      'diagnosis': '系统诊断',
+      'file': '文件管理'
+    }
+    return moduleMap[module] || '未知操作'
+  }
+  return getActionText(action)
+}
+
+// 获取请求参数
+const getRequestParams = (log: SystemLog) => {
+  if (!log.extra_data) return null
+  
+  // 从URL路径中提取参数
+  const params: Record<string, any> = {}
+  
+  // 添加基本请求信息
+  if (log.extra_data.method) {
+    params['请求方法'] = log.extra_data.method
+  }
+  if (log.extra_data.path) {
+    params['请求路径'] = log.extra_data.path
+  }
+  
+  // 添加查询参数
+  if (log.extra_data.query_params && Object.keys(log.extra_data.query_params).length > 0) {
+    Object.entries(log.extra_data.query_params).forEach(([key, value]) => {
+      params[`查询参数.${key}`] = value
+    })
+  }
+  
+  // 添加请求体参数
+  if (log.extra_data.request_body) {
+    if (typeof log.extra_data.request_body === 'object') {
+      Object.entries(log.extra_data.request_body).forEach(([key, value]) => {
+        params[`请求参数.${key}`] = value
+      })
+    } else {
+      params['请求体'] = log.extra_data.request_body
+    }
+  }
+  
+  return Object.keys(params).length > 0 ? params : null
+}
+
+// 获取响应信息
+const getResponseInfo = (log: SystemLog) => {
+  if (!log.extra_data) return null
+  
+  const info: Record<string, any> = {}
+  if (log.extra_data.response_status) info.response_status = log.extra_data.response_status
+  if (log.extra_data.process_time_ms) info.process_time_ms = log.extra_data.process_time_ms
+  if (log.extra_data.user_agent) info.user_agent = log.extra_data.user_agent
+  
+  return Object.keys(info).length > 0 ? info : null
+}
+
+// 获取参数标签
+const getParamLabel = (key: string) => {
+  const labelMap: Record<string, string> = {
+    '请求方法': '请求方法',
+    '请求路径': '请求路径',
+    '请求体': '请求体数据'
+  }
+  
+  // 处理查询参数和请求参数的标签
+  if (key.startsWith('查询参数.')) {
+    return key.replace('查询参数.', '查询参数 → ')
+  }
+  if (key.startsWith('请求参数.')) {
+    const paramName = key.replace('请求参数.', '')
+    const paramLabelMap: Record<string, string> = {
+      'code': '摄像头编码',
+      'name': '摄像头名称', 
+      'stream_url': '流媒体地址',
+      'location': '安装位置',
+      'description': '描述信息',
+      'camera_type': '摄像头类型',
+      'ip_address': 'IP地址',
+      'port': '端口号',
+      'username': '用户名',
+      'password': '密码',
+      'resolution': '分辨率',
+      'frame_rate': '帧率',
+      'bitrate': '码率',
+      'is_active': '是否启用',
+      'alarm_enabled': '是否启用告警',
+      'algorithm_id': '算法ID',
+      'model_id': '模型ID',
+      'roi_areas': 'ROI区域',
+      'threshold': '阈值',
+      'schedule_config': '调度配置'
+    }
+    return paramLabelMap[paramName] || paramName
+  }
+  
+  return labelMap[key] || key
+}
+
+// 获取状态码标签类型
+const getStatusTagType = (status: number) => {
+  if (status >= 200 && status < 300) return 'success'
+  if (status >= 300 && status < 400) return 'info'
+  if (status >= 400 && status < 500) return 'warning'
+  if (status >= 500) return 'danger'
+  return ''
+}
+
 // 组件挂载时加载数据
 onMounted(() => {
   loadLogs()
@@ -305,12 +488,16 @@ onMounted(() => {
 }
 
 .log-message,
+.request-params,
+.response-info,
 .extra-data,
 .user-agent {
   margin-top: 20px;
 }
 
 .log-message h4,
+.request-params h4,
+.response-info h4,
 .extra-data h4,
 .user-agent h4 {
   margin: 0 0 10px 0;

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, Float, Enum
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, JSON, Text, Enum
 from sqlalchemy.sql import func
 from database import Base
 import enum
@@ -171,9 +171,72 @@ class AIModel(Base):
     training_accuracy = Column(Float, comment="训练准确率")
     validation_accuracy = Column(Float, comment="验证准确率")
     
+    # 性能指标
+    inference_time = Column(Float, comment="推理时间(ms)")
+    
+    # 标签和其他信息
+    tags = Column(JSON, default=list, comment="标签列表")
+    description = Column(Text, comment="模型描述")
+    
     is_active = Column(Boolean, default=True, comment="是否启用")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+
+class AITaskStatus(enum.Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+class AITask(Base):
+    """AI服务检测任务表 - 专门用于管理AI服务的检测任务"""
+    __tablename__ = "ai_tasks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, comment="任务名称")
+    description = Column(Text, comment="任务描述")
+    
+    # AI服务关联
+    service_id = Column(Integer, nullable=False, comment="AI服务ID")
+    camera_id = Column(Integer, nullable=False, comment="摄像头ID")
+    algorithm_id = Column(Integer, nullable=False, comment="算法ID")
+    model_id = Column(Integer, comment="模型ID")
+    
+    # 任务配置
+    detection_config = Column(JSON, default=dict, comment="检测配置参数")
+    roi_areas = Column(JSON, default=list, comment="感兴趣区域")
+    alarm_threshold = Column(Float, default=0.8, comment="告警阈值")
+    
+    # 调度配置
+    schedule_type = Column(String(50), default="continuous", comment="调度类型: continuous, interval, cron")
+    schedule_config = Column(JSON, default=dict, comment="调度配置")
+    interval_seconds = Column(Integer, default=30, comment="检测间隔(秒)")
+    
+    # 任务状态
+    status = Column(Enum(AITaskStatus), default=AITaskStatus.PENDING, comment="任务状态")
+    is_active = Column(Boolean, default=True, comment="是否启用")
+    assigned_worker = Column(String(100), comment="分配的worker节点ID")
+    
+    # 执行统计
+    total_runs = Column(Integer, default=0, comment="总执行次数")
+    success_runs = Column(Integer, default=0, comment="成功执行次数")
+    failed_runs = Column(Integer, default=0, comment="失败执行次数")
+    last_run_time = Column(DateTime(timezone=True), comment="最后执行时间")
+    next_run_time = Column(DateTime(timezone=True), comment="下次执行时间")
+    avg_processing_time = Column(Float, comment="平均处理时间(ms)")
+    
+    # 检测结果统计
+    total_detections = Column(Integer, default=0, comment="总检测次数")
+    total_alarms = Column(Integer, default=0, comment="总告警次数")
+    last_detection_time = Column(DateTime(timezone=True), comment="最后检测时间")
+    
+    # 时间戳
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    
+    def __repr__(self):
+        return f"<AITask(id={self.id}, name='{self.name}', service_id={self.service_id}, status='{self.status}')>"
 
 class AIServiceLog(Base):
     __tablename__ = "ai_service_logs"
@@ -182,6 +245,7 @@ class AIServiceLog(Base):
     service_id = Column(Integer, nullable=False, comment="AI服务ID")
     camera_id = Column(Integer, nullable=False, comment="摄像头ID")
     algorithm_id = Column(Integer, nullable=False, comment="算法ID")
+    task_id = Column(Integer, comment="AI任务ID")
     
     # 检测结果
     detection_result = Column(JSON, comment="检测结果")
@@ -192,11 +256,11 @@ class AIServiceLog(Base):
     image_path = Column(String(500), comment="图像文件路径")
     image_timestamp = Column(DateTime(timezone=True), comment="图像时间戳")
     
-    # 请求状态和响应时间
+    # 请求信息
     status = Column(String(20), default="success", comment="请求状态")
     response_time = Column(Float, comment="响应时间(ms)")
     
-    # 是否触发告警
+    # 告警信息
     is_alarm = Column(Boolean, default=False, comment="是否触发告警")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")

@@ -32,12 +32,21 @@ class TaskStatus(enum.Enum):
     FAILED = "FAILED"  # 失败
     CANCELLED = "CANCELLED"  # 已取消
 
+class TaskType(enum.Enum):
+    DIAGNOSIS = "DIAGNOSIS"  # 诊断任务
+    AI_DETECTION = "AI_DETECTION"  # AI检测任务
+    MONITORING = "MONITORING"  # 监控任务
+    MAINTENANCE = "MAINTENANCE"  # 维护任务
+
 class DiagnosisTask(Base):
     __tablename__ = "diagnosis_tasks"
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False, comment="任务名称")
     description = Column(Text, comment="任务描述")
+    
+    # 任务类型
+    task_type = Column(Enum(TaskType), default=TaskType.DIAGNOSIS, comment="任务类型")
     
     # 模板关联
     template_id = Column(Integer, comment="诊断模板ID")
@@ -58,9 +67,11 @@ class DiagnosisTask(Base):
     # 状态信息
     status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, comment="任务状态")
     is_active = Column(Boolean, default=True, comment="是否启用")
+    enabled = Column(Boolean, default=True, comment="是否启用")
     assigned_worker = Column(String(100), comment="分配的worker节点ID")
     
     # 执行信息 - 匹配实际数据库结构
+    started_at = Column(DateTime(timezone=True), comment="任务开始时间")
     last_run_time = Column(DateTime(timezone=True), comment="最后执行时间")
     next_run_time = Column(DateTime(timezone=True), comment="下次执行时间")
     total_runs = Column(Integer, default=0, comment="总执行次数")
@@ -84,7 +95,7 @@ class AlarmRule(Base):
     camera_groups = Column(JSON, default=list, comment="适用的摄像头组")
     
     # 触发条件
-    severity_levels = Column(JSON, default=list, comment="触发的严重程度级别")
+    severity_level = Column(String(20), comment="触发的严重程度级别")
     threshold_config = Column(JSON, default=dict, comment="阈值配置")
     frequency_limit = Column(Integer, default=0, comment="频率限制(分钟内最多触发次数)")
     

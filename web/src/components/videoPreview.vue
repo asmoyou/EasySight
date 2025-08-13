@@ -1,5 +1,5 @@
 <script setup>
-import {ref, defineProps, watch, defineEmits, onMounted, onBeforeUnmount} from "vue";
+import {ref, watch, onMounted, onBeforeUnmount} from "vue";
 import jessibucaPlayer from "./jessibucaPlayer.vue";
 import { ElMessage } from 'element-plus'
 
@@ -60,8 +60,8 @@ function observeContainerResize() {
 const player_type = ref(''); // 视频类型
 
 function checkVideoUrl(){
-  // 如果video_url中含有rtsp/则判定为zlm的流，对url进行处理
-  if(video_url.value.includes('/rtsp/')) {
+  // 如果video_url中含有rtsp协议则判定为zlm的流，对url进行处理
+  if(video_url.value.includes('rtsp') || video_url.value.includes('/rtsp/')) {
     video_url.value = video_url.value.replace('http', 'ws');
     video_url.value = video_url.value.replace('.mp4', '.flv');
     video_url.value = video_url.value.replace('.ts', '.flv');
@@ -100,7 +100,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="video-preview">
     <!-- 根据视频类型选择播放器 -->
-    <div v-if="video_url.includes('/rtsp/') || video_url.endsWith('.flv')" class="jessibuca-player">
+    <div v-if="video_url.includes('rtsp') || video_url.includes('/rtsp/') || video_url.endsWith('.flv')" class="jessibuca-player">
       <jessibucaPlayer 
         ref="jessibucaPlayerRef"
         :video_url="video_url" 

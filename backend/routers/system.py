@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_, desc
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from datetime import datetime, date
+from datetime import datetime, date, timezone
+import pytz
 
 from database import get_db
 from models.system import (
@@ -38,6 +39,8 @@ class SystemConfigResponse(BaseModel):
     category: str
     description: Optional[str]
     is_public: bool
+    is_editable: bool
+    requires_restart: bool
     data_type: str
     validation_rule: Optional[str]
     created_at: datetime
@@ -158,7 +161,7 @@ class SystemStatsResponse(BaseModel):
     current_version: str
     license_status: str
     license_expires_in_days: Optional[int]
-    disk_usage: Dict[str, Any]
+    disk_usage: List[Dict[str, Any]]  # 支持多个磁盘
     memory_usage: Dict[str, Any]
     cpu_usage: float
 
@@ -203,6 +206,8 @@ async def get_system_configs(
         category=config.category,
         description=config.description,
         is_public=config.is_public,
+        is_editable=config.is_editable,
+        requires_restart=config.requires_restart,
         data_type=config.data_type,
         validation_rule=config.validation_rule,
         created_at=config.created_at,
@@ -236,6 +241,8 @@ async def create_system_config(
         category=config.category,
         description=config.description,
         is_public=config.is_public,
+        is_editable=config.is_editable,
+        requires_restart=config.requires_restart,
         data_type=config.data_type,
         validation_rule=config.validation_rule,
         created_at=config.created_at,
@@ -265,6 +272,8 @@ async def get_system_config(
         category=config.category,
         description=config.description,
         is_public=config.is_public,
+        is_editable=config.is_editable,
+        requires_restart=config.requires_restart,
         data_type=config.data_type,
         validation_rule=config.validation_rule,
         created_at=config.created_at,
@@ -302,6 +311,8 @@ async def update_system_config(
         category=config.category,
         description=config.description,
         is_public=config.is_public,
+        is_editable=config.is_editable,
+        requires_restart=config.requires_restart,
         data_type=config.data_type,
         validation_rule=config.validation_rule,
         created_at=config.created_at,
@@ -610,9 +621,12 @@ async def get_system_logs(
             users = user_result.scalars().all()
             user_map = {u.id: u.username for u in users}
     
+    # 设置上海时区
+    shanghai_tz = pytz.timezone('Asia/Shanghai')
+    
     items = [SystemLogResponse(
         id=log.id,
-        level=log.level,
+        level=log.level.lower() if log.level else "info",
         module=log.module or "",
         action=log.action or "",
         message=log.message,
@@ -622,7 +636,7 @@ async def get_system_logs(
         user_agent=log.user_agent,
         request_id=log.request_id,
         extra_data=log.extra_data or {},
-        created_at=log.created_at
+        created_at=log.created_at.replace(tzinfo=timezone.utc).astimezone(shanghai_tz) if log.created_at else None
     ) for log in logs]
     
     return {
@@ -827,13 +841,46 @@ async def get_system_stats(
         else:
             license_status = "永久"
     
-    # 系统资源使用情况
-    disk_usage = {
-        "total": psutil.disk_usage('/').total,
-        "used": psutil.disk_usage('/').used,
-        "free": psutil.disk_usage('/').free,
-        "percent": psutil.disk_usage('/').percent
-    }
+    # 系统资源使用情况 - 支持多个磁盘
+    disk_usage = []
+    try:
+        # 获取所有磁盘分区
+        partitions = psutil.disk_partitions()
+        for partition in partitions:
+            try:
+                # 跳过特殊文件系统
+                if partition.fstype in ['', 'tmpfs', 'devtmpfs', 'squashfs']:
+                    continue
+                    
+                usage = psutil.disk_usage(partition.mountpoint)
+                disk_info = {
+                    "device": partition.device,
+                    "mountpoint": partition.mountpoint,
+                    "fstype": partition.fstype,
+                    "total": usage.total,
+                    "used": usage.used,
+                    "free": usage.free,
+                    "percent": usage.percent
+                }
+                disk_usage.append(disk_info)
+            except (PermissionError, OSError):
+                # 跳过无法访问的磁盘
+                continue
+    except Exception:
+        # 如果获取多磁盘信息失败，回退到根目录
+        try:
+            usage = psutil.disk_usage('/')
+            disk_usage = [{
+                "device": "/",
+                "mountpoint": "/",
+                "fstype": "unknown",
+                "total": usage.total,
+                "used": usage.used,
+                "free": usage.free,
+                "percent": usage.percent
+            }]
+        except Exception:
+            disk_usage = []
     
     memory_info = psutil.virtual_memory()
     memory_usage = {

@@ -192,24 +192,46 @@
             {{ formatDateTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" size="small" :icon="Edit" @click="showEditDialog(row)">
-              编辑
-            </el-button>
-            <el-button type="warning" size="small" :icon="Key" @click="showResetPasswordDialog(row)">
-              重置密码
-            </el-button>
-            <el-button
-              type="danger"
-              size="small"
-              :icon="Delete"
-              @click="handleDelete(row)"
-              :disabled="row.id === currentUserId"
-            >
-              删除
-            </el-button>
-          </template>
+            <div class="action-buttons">
+              <el-button-group>
+                <el-button 
+                  type="primary" 
+                  size="small" 
+                  @click="showEditDialog(row)"
+                  title="编辑用户"
+                >
+                  <el-icon><Edit /></el-icon>
+                </el-button>
+                <el-button 
+                  type="warning" 
+                  size="small" 
+                  @click="showResetPasswordDialog(row)"
+                  title="重置密码"
+                >
+                  <el-icon><Key /></el-icon>
+                </el-button>
+              </el-button-group>
+              <el-dropdown @command="(command) => handleDropdownCommand(command, row)" trigger="click">
+                <el-button size="small" title="更多操作">
+                  <el-icon><MoreFilled /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item 
+                      command="delete" 
+                      :disabled="row.id === currentUserId"
+                      class="danger-item"
+                    >
+                      <el-icon><Delete /></el-icon>
+                      删除
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+             </div>
+           </template>
         </el-table-column>
       </el-table>
 
@@ -343,7 +365,8 @@ import {
   User,
   Check,
   CircleCheck,
-  Clock
+  Clock,
+  MoreFilled
 } from '@element-plus/icons-vue'
 import { usersApi } from '@/api/users'
 import { rolesApi } from '@/api/roles'
@@ -625,6 +648,13 @@ const handleDelete = async (user: UserType) => {
   }
 }
 
+// 下拉菜单处理
+const handleDropdownCommand = (command: string, user: UserType) => {
+  if (command === 'delete') {
+    handleDelete(user)
+  }
+}
+
 // 批量删除
 const handleBatchDelete = async () => {
   if (selectedUsers.value.length === 0) return
@@ -835,11 +865,85 @@ onMounted(() => {
       }
     }
     
+    .action-buttons {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .action-buttons .el-button-group {
+      margin-right: 0;
+    }
+    
+    .action-buttons .el-button {
+      padding: 5px 8px;
+    }
+    
+    .action-buttons .el-dropdown .el-button {
+      padding: 5px 8px;
+      min-width: 28px;
+    }
+    
     .pagination-container {
       display: flex;
       justify-content: center;
       margin-top: 20px;
     }
+    
+    /* 操作按钮颜色样式 */
+    .action-buttons .el-button-group .el-button:first-child {
+      color: #409eff;
+      border-color: #c6e2ff;
+      background-color: #ecf5ff;
+    }
+    
+    .action-buttons .el-button-group .el-button:first-child:hover {
+      color: #fff;
+      background-color: #409eff;
+      border-color: #409eff;
+    }
+    
+    .action-buttons .el-button-group .el-button:last-child {
+      color: #e6a23c;
+      border-color: #f5dab1;
+      background-color: #fdf6ec;
+    }
+    
+    .action-buttons .el-button-group .el-button:last-child:hover {
+      color: #fff;
+      background-color: #e6a23c;
+      border-color: #e6a23c;
+    }
+    
+    .action-buttons .el-dropdown .el-button {
+      color: #909399;
+      border-color: #dcdfe6;
+      background-color: #f5f7fa;
+    }
+    
+    .action-buttons .el-dropdown .el-button:hover {
+      color: #409eff;
+      border-color: #c6e2ff;
+      background-color: #ecf5ff;
+    }
+    
+    /* 删除按钮危险样式 */
+.el-dropdown-menu .danger-item {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item:hover {
+  background-color: #fef0f0 !important;
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item .el-icon {
+  color: #f56c6c !important;
+}
+
+.el-dropdown-menu .danger-item span {
+  color: #f56c6c !important;
+}
   }
 }
 </style>

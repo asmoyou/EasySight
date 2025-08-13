@@ -69,10 +69,10 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="severity_levels" label="严重程度" width="120">
+        <el-table-column prop="severity_level" label="严重程度" width="120">
           <template #default="{ row }">
-            <el-tag v-for="level in row.severity_levels" :key="level" :type="getSeverityLevelColor(level)" style="margin-right: 4px;">
-              {{ getSeverityLevelName(level) }}
+            <el-tag :type="getSeverityLevelColor(row.severity_level)">
+              {{ getSeverityLevelText(row.severity_level) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -151,8 +151,8 @@
             <el-option label="人脸识别" value="face_recognition" />
           </el-select>
         </el-form-item>
-        <el-form-item label="严重程度" prop="severity_levels">
-          <el-select v-model="formData.severity_levels" placeholder="请选择严重程度" multiple>
+        <el-form-item label="严重程度" prop="severity_level">
+          <el-select v-model="formData.severity_level" placeholder="请选择严重程度">
             <el-option label="低" value="low" />
             <el-option label="中" value="medium" />
             <el-option label="高" value="high" />
@@ -200,7 +200,7 @@ interface EventRuleForm {
   diagnosis_types: string[]
   camera_ids: number[]
   camera_groups: string[]
-  severity_levels: string[]
+  severity_level: string
   threshold_config: Record<string, any>
   frequency_limit: number
   notification_channels: number[]
@@ -230,7 +230,7 @@ const formData = reactive<EventRuleForm>({
   diagnosis_types: [],
   camera_ids: [],
   camera_groups: [],
-  severity_levels: [],
+  severity_level: '',
   threshold_config: {},
   frequency_limit: 0,
   notification_channels: [],
@@ -244,7 +244,7 @@ const formRules: FormRules = {
   name: [{ required: true, message: '请输入规则名称', trigger: 'blur' }],
   description: [{ required: true, message: '请输入规则描述', trigger: 'blur' }],
   diagnosis_types: [{ required: true, message: '请选择诊断类型', trigger: 'change' }],
-  severity_levels: [{ required: true, message: '请选择严重程度级别', trigger: 'change' }]
+  severity_level: [{ required: true, message: '请选择严重程度级别', trigger: 'change' }]
 }
 
 // 分页
@@ -280,7 +280,7 @@ const loadRules = async () => {
         diagnosis_types: ['camera_offline'],
         camera_ids: [],
         camera_groups: [],
-        severity_levels: ['high'],
+        severity_level: 'high',
         threshold_config: { duration: 300 },
         frequency_limit: 5,
         notification_channels: [1],
@@ -338,7 +338,7 @@ const editRule = (rule: AlarmRule) => {
     diagnosis_types: rule.diagnosis_types,
     camera_ids: rule.camera_ids,
     camera_groups: rule.camera_groups,
-    severity_levels: rule.severity_levels,
+    severity_level: rule.severity_level,
     threshold_config: rule.threshold_config,
     frequency_limit: rule.frequency_limit,
     notification_channels: rule.notification_channels,
@@ -430,7 +430,7 @@ const resetForm = () => {
     diagnosis_types: [],
     camera_ids: [],
     camera_groups: [],
-    severity_levels: [],
+    severity_level: '',
     threshold_config: {},
     frequency_limit: 0,
     notification_channels: [],

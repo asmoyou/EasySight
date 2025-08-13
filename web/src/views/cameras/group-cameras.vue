@@ -291,7 +291,7 @@ const handleRemoveCamera = async (camera: Camera) => {
 
 const handleViewCamera = (camera: Camera) => {
   // 跳转到摄像头详情页面
-  ElMessage.info(`查看摄像头 "${camera.name}" 详情功能待实现`)
+  router.push(`/camera-detail/${camera.id}`)
 }
 
 const handleSearch = () => {

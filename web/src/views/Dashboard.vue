@@ -175,11 +175,11 @@
             <div class="status-value network">
               <div class="network-item">
                 <span class="network-label">上行:</span>
-                <span class="network-speed">{{ systemStatus.networkUp }} MB/s</span>
+                <span class="network-speed">{{ systemStatus.networkUp }} KB/s</span>
               </div>
               <div class="network-item">
                 <span class="network-label">下行:</span>
-                <span class="network-speed">{{ systemStatus.networkDown }} MB/s</span>
+                <span class="network-speed">{{ systemStatus.networkDown }} KB/s</span>
               </div>
             </div>
           </div>
@@ -419,8 +419,8 @@ const fetchDashboardData = async () => {
         cpu: health.cpu_percent,
         memory: health.memory_percent,
         disk: health.disk_percent,
-        networkUp: Math.round(health.network_sent / 1024 / 1024), // 转换为MB
-        networkDown: Math.round(health.network_recv / 1024 / 1024) // 转换为MB
+        networkUp: health.network_sent, // KB/s
+        networkDown: health.network_recv // KB/s
       }
       
       // 更新图表

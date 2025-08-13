@@ -205,12 +205,24 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="handleViewDetail(row)">详情</el-button>
-            <el-button size="small" type="primary" @click="handleViewImage(row)" :disabled="!row.image_url">
-              查看图像
-            </el-button>
+            <div class="action-buttons">
+              <el-button-group>
+                <el-button size="small" @click="handleViewDetail(row)" title="查看详情">
+                  <el-icon><View /></el-icon>
+                </el-button>
+                <el-button 
+                  size="small" 
+                  type="primary" 
+                  @click="handleViewImage(row)" 
+                  :disabled="!row.image_url"
+                  title="查看图像"
+                >
+                  <el-icon><Picture /></el-icon>
+                </el-button>
+              </el-button-group>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -285,7 +297,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh, Download, CircleCheck, Warning, CircleClose, Close } from '@element-plus/icons-vue'
+import { Search, Refresh, Download, CircleCheck, Warning, CircleClose, Close, View, Picture } from '@element-plus/icons-vue'
 import { diagnosisResultApi, type DiagnosisResult } from '@/api/diagnosis'
 import { formatDateTime } from '@/utils/date'
 
@@ -766,5 +778,24 @@ onMounted(() => {
   line-height: 1.4;
   max-height: 200px;
   overflow-y: auto;
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-buttons .el-button-group {
+  display: flex;
+}
+
+.action-buttons .el-button {
+  min-width: auto;
+  padding: 5px 8px;
+}
+
+.action-buttons .el-button:disabled {
+  opacity: 0.5;
 }
 </style>

@@ -119,8 +119,8 @@ class MediaNodeManager:
             
             logger.debug(f"Extracted metrics - CPU: {cpu_usage}, Memory: {memory_usage}, Bandwidth: {bandwidth_usage}")
             
-            # 获取当前连接数（这里可以根据实际情况获取，暂时使用0）
-            current_connections = 0  # TODO: 实现获取实际连接数的逻辑
+            # 获取当前连接数（通过ZLMediaKit API获取实际连接数）
+            current_connections = await self.get_current_connections()
             
             # 更新节点状态
             await self.update_node_status(
@@ -136,6 +136,43 @@ class MediaNodeManager:
             logger.error(f"Failed to collect and report system metrics: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
+    
+    async def get_current_connections(self):
+        """获取当前连接数（通过ZLMediaKit API统计所有流的观看者数量）"""
+        try:
+            import httpx
+            
+            # 构建ZLMediaKit API URL
+            zlm_host = self.node_info.get('ip_address', '127.0.0.1')
+            zlm_port = self.node_info.get('zlm_port', 8060)
+            secret_key = self.node_info.get('secret_key', '')
+            
+            zlm_api_url = f"http://{zlm_host}:{zlm_port}/index/api/getMediaList"
+            
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.post(
+                    zlm_api_url,
+                    json={"secret": secret_key}
+                )
+                
+                if response.status_code == 200:
+                    result_data = response.json()
+                    if result_data.get("code") == 0:
+                        streams = result_data.get("data", [])
+                        # 统计所有流的观看者数量总和
+                        total_connections = sum(stream.get("readerCount", 0) for stream in streams)
+                        logger.debug(f"Current connections from ZLMediaKit: {total_connections} (from {len(streams)} streams)")
+                        return total_connections
+                    else:
+                        logger.warning(f"ZLMediaKit API returned error: {result_data.get('msg', 'Unknown error')}")
+                        return 0
+                else:
+                    logger.warning(f"ZLMediaKit API request failed with status: {response.status_code}")
+                    return 0
+                    
+        except Exception as e:
+            logger.error(f"Failed to get current connections from ZLMediaKit: {e}")
+            return 0
     
     async def unregister_node(self):
         """注销媒体节点"""

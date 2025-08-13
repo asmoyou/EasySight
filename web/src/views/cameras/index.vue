@@ -97,31 +97,14 @@
           {{ formatDateTime(row.created_at) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="280" fixed="right">
+      <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" @click="handleView(row)">查看</el-button>
-          <el-button size="small" type="primary" @click="handleEdit(row)">编辑</el-button>
-          <el-button size="small" type="info" @click="handlePreview(row)" :disabled="row.status !== 'online'">
-            <el-icon><VideoPlay /></el-icon>
-            预览
-          </el-button>
-          <el-button size="small" type="warning" @click="handleStopStream(row)" :disabled="row.status !== 'online'">
-            <el-icon><VideoPause /></el-icon>
-            停止拉流
-          </el-button>
-
-          <el-dropdown @command="(command) => handleGroupAction(command, row)">
-            <el-button size="small" type="success">
-              分组操作<el-icon class="el-icon--right"><arrow-down /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="assign">分配到分组</el-dropdown-item>
-                <el-dropdown-item command="remove">移出分组</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+          <TableActions
+            :actions="getCameraActions(row)"
+            :row="row"
+            :max-primary-actions="2"
+            compact
+          />
         </template>
       </el-table-column>
     </el-table>
@@ -509,13 +492,19 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Plus, View, Edit, Delete, ArrowDown, VideoPlay, VideoPause, VideoCamera, Monitor, Close, Rank } from '@element-plus/icons-vue'
 import { cameraApi, mediaProxyApi } from '@/api/cameras'
 import { getGroups, updateGroup } from '@/api/groups'
 import VideoPreview from '@/components/videoPreview.vue'
+import TableActions from '@/components/TableActions.vue'
 import type { Camera, CameraQueryParams, MediaProxy, CameraCreateForm, CameraUpdateForm } from '@/types/camera'
 import type { CameraGroup } from '@/api/groups'
+import type { ActionItem } from '@/types/table'
+
+// Router 实例
+const router = useRouter()
 
 // 响应式数据
 const loading = ref(false)
@@ -733,11 +722,8 @@ const handleAdd = () => {
 }
 
 const handleView = (row: Camera) => {
-  dialogMode.value = 'view'
-  dialogTitle.value = '查看摄像头'
-  currentCamera.value = row
-  Object.assign(formData.value, row)
-  dialogVisible.value = true
+  // 跳转到摄像头详情页面
+  router.push(`/camera-detail/${row.id}`)
 }
 
 const handleEdit = (row: Camera) => {
@@ -869,6 +855,70 @@ const getCameraGroups = (cameraId: number) => {
   return cameraGroups.value.filter(group => group.camera_ids.includes(cameraId))
 }
 
+// 获取摄像头操作按钮
+const getCameraActions = (row: Camera): ActionItem[] => {
+  return [
+    {
+      key: 'view',
+      label: '查看',
+      type: 'primary',
+      size: 'small',
+      handler: () => handleView(row)
+    },
+    {
+      key: 'edit',
+      label: '编辑',
+      type: 'primary',
+      size: 'small',
+      handler: () => handleEdit(row)
+    },
+    {
+      key: 'preview',
+      label: '预览',
+      type: 'info',
+      size: 'small',
+      icon: VideoPlay,
+      disabled: row.status !== 'online',
+      handler: () => handlePreview(row)
+    },
+    {
+      key: 'stop-stream',
+      label: '停止拉流',
+      type: 'warning',
+      size: 'small',
+      icon: VideoPause,
+      handler: () => handleStopStream(row)
+    },
+    {
+      key: 'group-actions',
+      label: '分组操作',
+      type: 'success',
+      handler: () => {}, // 添加空的handler以满足类型要求
+      size: 'small',
+      dropdown: true,
+      children: [
+        {
+          key: 'assign-group',
+          label: '分配到分组',
+          handler: () => handleGroupAction('assign', row)
+        },
+        {
+          key: 'remove-group',
+          label: '移出分组',
+          handler: () => handleGroupAction('remove', row)
+        }
+      ]
+    },
+    {
+      key: 'delete',
+      label: '删除',
+      type: 'danger',
+      size: 'small',
+      handler: () => handleDelete(row)
+    }
+  ]
+}
+
 // 表格选择变化
 const handleSelectionChange = (selection: Camera[]) => {
   selectedCameras.value = selection
@@ -960,8 +1010,8 @@ const handlePreview = async (camera: Camera) => {
     const response = await cameraApi.getPreview(camera.id)
     console.log('Preview API response:', response) // 添加调试日志
     previewCamera.value = camera
-    // 检查响应数据结构
-    const previewData = response.data || response
+    // 正确解析ApiResponse结构：response.data.data.preview_url
+    const previewData = response.data.data || response.data || response
     previewUrl.value = previewData.preview_url
     console.log('Preview URL:', previewUrl.value) // 添加调试日志
     previewDialogVisible.value = true
@@ -1055,7 +1105,7 @@ const loadSelectedCameraPreviews = async () => {
     if (camera) {
       try {
         const response = await cameraApi.getPreview(camera.id)
-        const previewData = response.data || response
+        const previewData = response.data.data || response.data || response
         
         gridSlots.value[i] = {
           camera: camera,
